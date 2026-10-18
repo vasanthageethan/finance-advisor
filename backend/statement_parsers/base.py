@@ -13,6 +13,27 @@ from dataclasses import dataclass
 from datetime import date as date_type
 
 
+def extract_visible_text(pdf) -> str:
+    """
+    Join every page's text, excluding invisible (white-on-white) characters.
+    Chase embeds hidden marker text ("*start*transaction detail",
+    "*end*transaction detail", etc.) at the same position as real content
+    for its own internal tooling; pdfplumber's text-flow heuristic can
+    interleave those characters with a real transaction line's, silently
+    corrupting it (e.g. "10/07" becomes "1...detail...0/07" mid-word).
+    White text is reported as non_stroking_color (1.0,) or (1.0, 1.0, 1.0)
+    depending on the PDF's color space.
+    """
+
+    def is_visible(obj: dict) -> bool:
+        if obj["object_type"] != "char":
+            return True
+        color = obj.get("non_stroking_color")
+        return color not in ((1.0,), (1.0, 1.0, 1.0))
+
+    return "\n".join(page.filter(is_visible).extract_text() or "" for page in pdf.pages)
+
+
 @dataclass
 class RawTransaction:
     date: date_type

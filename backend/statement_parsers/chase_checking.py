@@ -19,18 +19,21 @@ from datetime import date, datetime
 
 import pdfplumber
 
-from .base import ParsedStatement, ReconciliationResult, RawTransaction, infer_year, to_float
+from .base import ParsedStatement, ReconciliationResult, RawTransaction, extract_visible_text, infer_year, to_float
 
 _AMOUNT = r"-?(?:\d[\d,]*)?\.\d{2}"  # sub-dollar amounts print without a leading zero, e.g. ".07"
 _TXN_LINE = re.compile(rf"^(\d{{2}}/\d{{2}})\s+(.+?)\s+({_AMOUNT})\s+({_AMOUNT})$")
-_PERIOD = re.compile(r"(\w+ \d{1,2}, \d{4}) through (\w+ \d{1,2}, \d{4})")
+#  pdfplumber sometimes drops the space around "through" depending on the
+#  statement's PDF encoding (e.g. "July 15, 2026throughAugust 14, 2026"),
+#  so the gap is \s* (zero or more), not a literal space.
+_PERIOD = re.compile(r"(\w+ \d{1,2}, \d{4})\s*through\s*(\w+ \d{1,2}, \d{4})")
 _BEGIN_BALANCE = re.compile(r"Beginning Balance\s+\$?([\d,]+\.\d{2})")
 _END_BALANCE = re.compile(r"Ending Balance\s+\$?([\d,]+\.\d{2})")
 
 
 def parse(pdf_path: str) -> ParsedStatement:
     with pdfplumber.open(pdf_path) as pdf:
-        full_text = "\n".join(p.extract_text() or "" for p in pdf.pages)
+        full_text = extract_visible_text(pdf)
 
     period_match = _PERIOD.search(full_text)
     if not period_match:
