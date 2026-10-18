@@ -75,6 +75,20 @@ def count_transactions() -> int:
     return conn.execute("SELECT COUNT(*) AS n FROM transactions").fetchone()["n"]
 
 
+def fetch_transactions_by_source(category_source: str) -> list[sqlite3.Row]:
+    conn = _conn()
+    return conn.execute("SELECT * FROM transactions WHERE category_source = ?", (category_source,)).fetchall()
+
+
+def update_transaction_category(txn_id: int, category: str, category_source: str, confidence: float) -> None:
+    conn = _conn()
+    conn.execute(
+        "UPDATE transactions SET category = ?, category_source = ?, confidence = ? WHERE id = ?",
+        (category, category_source, confidence, txn_id),
+    )
+    conn.commit()
+
+
 def is_file_ingested(mongo_file_id: str) -> bool:
     conn = _conn()
     row = conn.execute("SELECT 1 FROM ingested_files WHERE mongo_file_id = ?", (mongo_file_id,)).fetchone()
