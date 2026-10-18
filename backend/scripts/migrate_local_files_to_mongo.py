@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import db  # noqa: E402
 import filestore  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -27,7 +28,13 @@ LOCAL_STATEMENT_DIRS = {
 
 
 def main() -> None:
+    db.connect()
     filestore.connect()
+    customer = db.get_any_customer()
+    if customer is None:
+        print("No customer account exists yet -- start the backend once first.")
+        return
+
     uploaded = 0
     skipped = 0
     for issuer, directory in LOCAL_STATEMENT_DIRS.items():
@@ -35,7 +42,7 @@ def main() -> None:
             continue
         for pdf_path in sorted(directory.glob("*.pdf")):
             data = pdf_path.read_bytes()
-            file_id, created = filestore.store_file(data, pdf_path.name, issuer, "application/pdf")
+            file_id, created = filestore.store_file(customer["customer_id"], data, pdf_path.name, issuer, "application/pdf")
             print(f"{'uploaded' if created else 'already present'}: {pdf_path.name} ({issuer}) -> {file_id}")
             uploaded += 1 if created else 0
             skipped += 0 if created else 1

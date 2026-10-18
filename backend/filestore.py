@@ -37,22 +37,22 @@ def _get_bucket() -> gridfs.GridFSBucket:
     return _bucket
 
 
-def store_file(data: bytes, filename: str, issuer: str, content_type: str) -> tuple[str, bool]:
-    """Store raw file bytes, deduplicated by SHA-256. Returns (file_id,
-    created) -- created is False when a file with identical content
-    already existed, in which case its id is reused rather than storing a
-    second copy."""
+def store_file(customer_id: str, data: bytes, filename: str, issuer: str, content_type: str) -> tuple[str, bool]:
+    """Store raw file bytes, deduplicated by SHA-256 within the owning
+    customer's files. Returns (file_id, created) -- created is False when
+    that customer already has a file with identical content, in which
+    case its id is reused rather than storing a second copy."""
     bucket = _get_bucket()
     digest = hashlib.sha256(data).hexdigest()
 
-    existing = bucket.find({"metadata.sha256": digest}).limit(1)
+    existing = bucket.find({"metadata.sha256": digest, "metadata.customer_id": customer_id}).limit(1)
     for doc in existing:
         return str(doc._id), False
 
     file_id = bucket.upload_from_stream(
         filename,
         data,
-        metadata={"issuer": issuer, "content_type": content_type, "sha256": digest},
+        metadata={"customer_id": customer_id, "issuer": issuer, "content_type": content_type, "sha256": digest},
     )
     return str(file_id), True
 
@@ -62,10 +62,10 @@ def get_file_bytes(file_id: str) -> bytes:
     return bucket.open_download_stream(ObjectId(file_id)).read()
 
 
-def list_files() -> list[dict]:
+def list_files(customer_id: str) -> list[dict]:
     bucket = _get_bucket()
     files = []
-    for doc in bucket.find().sort("uploadDate", 1):
+    for doc in bucket.find({"metadata.customer_id": customer_id}).sort("uploadDate", 1):
         metadata = doc.metadata or {}
         files.append(
             {
@@ -77,6 +77,19 @@ def list_files() -> list[dict]:
             }
         )
     return files
+
+
+def backfill_customer_id(customer_id: str) -> None:
+    """Assign every pre-auth file (metadata.customer_id missing) to the
+    given customer. Idempotent -- a no-op once nothing is left unassigned.
+    GridFSBucket's own `_collection` attribute is the bare bucket-name
+    collection, not `<bucket>.files` where metadata actually lives -- the
+    files collection has to be addressed directly."""
+    _get_bucket()  # ensure connected
+    files_collection = _client[_db_name][f"{BUCKET_NAME}.files"]
+    files_collection.update_many(
+        {"metadata.customer_id": {"$exists": False}}, {"$set": {"metadata.customer_id": customer_id}}
+    )
 
 
 def clear_all() -> None:

@@ -1,9 +1,12 @@
 import io
 import json
+import os
+import sqlite3
 import tempfile
+import uuid
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -16,14 +19,27 @@ load_dotenv()
 import anthropic
 import ollama
 import pandas as pd
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+import auth
 import db
 import filestore
 from categorizer import NON_SPEND_CATEGORIES, categorize
 from insights import generate_insights
-from models import AccountCoverage, CategorySummary, CoverageResponse, InsightsResponse, MonthlySummary, Transaction
+from models import (
+    AccountCoverage,
+    AuthStatusResponse,
+    CategorySummary,
+    CoverageResponse,
+    CustomerProfile,
+    InsightsResponse,
+    LoginRequest,
+    LoginResponse,
+    MonthlySummary,
+    SetPasswordRequest,
+    Transaction,
+)
 from statement_parsers import PARSERS, parse_statement
 from statement_parsers.base import RawTransaction
 
@@ -32,13 +48,14 @@ from statement_parsers.base import RawTransaction
 EXPECTED_COLUMNS = {"date", "description", "amount"}
 
 
-def _ingest_raw_transactions(raw_transactions, account: str | None) -> list[Transaction]:
+def _ingest_raw_transactions(customer_id: str, raw_transactions, account: str | None) -> list[Transaction]:
     new_transactions = []
     for raw in raw_transactions:
         cat = categorize(raw.description)
         txn = Transaction(date=raw.date, description=raw.description, amount=raw.amount, account=account, **cat)
         new_transactions.append(txn)
     db.insert_transactions(
+        customer_id,
         [
             {
                 "date": t.date.isoformat(),
@@ -50,7 +67,7 @@ def _ingest_raw_transactions(raw_transactions, account: str | None) -> list[Tran
                 "account": t.account,
             }
             for t in new_transactions
-        ]
+        ],
     )
     return new_transactions
 
@@ -69,7 +86,7 @@ def _parse_csv_bytes(raw: bytes) -> list[RawTransaction]:
     ]
 
 
-def _ingest_mongo_file(file_id: str, issuer: str, filename: str, content_type: str) -> list[Transaction]:
+def _ingest_mongo_file(customer_id: str, file_id: str, issuer: str, filename: str, content_type: str) -> list[Transaction]:
     """Parse one already-stored-in-Mongo file and load it into SQLite,
     recording the file id so it's never re-parsed. Raises on a CSV schema
     problem or a PDF that fails reconciliation -- callers decide whether
@@ -90,31 +107,48 @@ def _ingest_mongo_file(file_id: str, issuer: str, filename: str, content_type: s
             )
         raw_transactions = parsed.transactions
 
-    transactions = _ingest_raw_transactions(raw_transactions, issuer)
-    db.mark_file_ingested(file_id, issuer, filename)
+    transactions = _ingest_raw_transactions(customer_id, raw_transactions, issuer)
+    db.mark_file_ingested(customer_id, file_id, issuer, filename)
     return transactions
 
 
-def _load_from_filestore() -> None:
+def _load_from_filestore(customer_id: str) -> None:
     """Startup catch-up: parse any Mongo-stored file that hasn't made it
     into SQLite yet. Mongo is the source of truth for 'what was uploaded';
     this is what keeps SQLite caught up with it across restarts."""
-    for f in filestore.list_files():
+    for f in filestore.list_files(customer_id):
         if db.is_file_ingested(f["file_id"]):
             continue
         try:
-            _ingest_mongo_file(f["file_id"], f["issuer"], f["filename"], f["content_type"])
+            _ingest_mongo_file(customer_id, f["file_id"], f["issuer"], f["filename"], f["content_type"])
         except Exception as exc:
             print(f"[startup] skipping {f['filename']}: {exc}")
             continue
         print(f"[startup] loaded transactions from {f['filename']}")
 
 
+def _seed_customer() -> sqlite3.Row:
+    """This app has exactly one customer. Seed it on first run (password
+    unset until /auth/set-password's one-time bootstrap), then backfill
+    any pre-auth data to it -- see docs/design-auth-and-customers.md."""
+    customer = db.get_any_customer()
+    if customer is None:
+        customer_id = str(uuid.uuid4())
+        name = os.environ.get("CUSTOMER_NAME", "Vasanthageethan Arputharaj")
+        email = os.environ.get("CUSTOMER_EMAIL", "vasanthageethan1102@gmail.com")
+        db.create_customer(customer_id, name, email, datetime.now(timezone.utc).isoformat())
+        customer = db.get_customer_by_customer_id(customer_id)
+    db.migrate_customer_id_column(customer["customer_id"])
+    filestore.backfill_customer_id(customer["customer_id"])
+    return customer
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.connect()
     filestore.connect()
-    _load_from_filestore()
+    customer = _seed_customer()
+    _load_from_filestore(customer["customer_id"])
     yield
 
 
@@ -128,8 +162,54 @@ app.add_middleware(
 )
 
 
+@app.get("/auth/status", response_model=AuthStatusResponse)
+def auth_status():
+    customer = db.get_any_customer()
+    return AuthStatusResponse(password_set=bool(customer and customer["password_hash"]))
+
+
+@app.post("/auth/set-password", response_model=LoginResponse)
+def set_password(body: SetPasswordRequest):
+    """One-time bootstrap -- only works while no password has been set
+    yet. Closes itself permanently after the first successful call, see
+    docs/design-auth-and-customers.md."""
+    customer = db.get_any_customer()
+    if customer is None:
+        raise HTTPException(503, "No customer account exists yet -- restart the backend first.")
+    if customer["password_hash"]:
+        raise HTTPException(403, "A password is already set. Use /auth/login instead.")
+    if len(body.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters.")
+
+    db.set_customer_password(customer["customer_id"], auth.hash_password(body.password))
+    token = auth.create_access_token(customer["customer_id"])
+    return LoginResponse(access_token=token, customer_id=customer["customer_id"], name=customer["name"])
+
+
+@app.post("/auth/login", response_model=LoginResponse)
+def login(body: LoginRequest):
+    customer = db.get_customer_by_email(body.email)
+    if not customer or not customer["password_hash"] or not auth.verify_password(body.password, customer["password_hash"]):
+        raise HTTPException(401, "Incorrect email or password.")
+
+    token = auth.create_access_token(customer["customer_id"])
+    return LoginResponse(access_token=token, customer_id=customer["customer_id"], name=customer["name"])
+
+
+@app.get("/auth/me", response_model=CustomerProfile)
+def me(customer_id: str = Depends(auth.require_bearer_token)):
+    customer = db.get_customer_by_customer_id(customer_id)
+    if not customer:
+        raise HTTPException(401, "Not authenticated")
+    return CustomerProfile(customer_id=customer["customer_id"], name=customer["name"], email=customer["email"])
+
+
 @app.post("/upload", response_model=list[Transaction])
-async def upload_statement(file: UploadFile = File(...), account: str | None = Form(None)):
+async def upload_statement(
+    file: UploadFile = File(...),
+    account: str | None = Form(None),
+    customer_id: str = Depends(auth.require_bearer_token),
+):
     if not file.filename.endswith(".csv"):
         raise HTTPException(400, "Only CSV files are supported on this endpoint")
 
@@ -143,33 +223,36 @@ async def upload_statement(file: UploadFile = File(...), account: str | None = F
 
     # Store the raw upload in Mongo regardless -- it's the landing zone,
     # not conditional on parsing having gone well.
-    file_id, _ = filestore.store_file(raw, file.filename, issuer, "text/csv")
-    transactions = _ingest_raw_transactions(raw_transactions, account)
-    db.mark_file_ingested(file_id, issuer, file.filename)
+    file_id, _ = filestore.store_file(customer_id, raw, file.filename, issuer, "text/csv")
+    transactions = _ingest_raw_transactions(customer_id, raw_transactions, account)
+    db.mark_file_ingested(customer_id, file_id, issuer, file.filename)
     return transactions
 
 
 @app.post("/upload/statement", response_model=list[Transaction])
-async def upload_pdf_statement(file: UploadFile = File(...), issuer: str = Form(...)):
+async def upload_pdf_statement(
+    file: UploadFile = File(...),
+    issuer: str = Form(...),
+    customer_id: str = Depends(auth.require_bearer_token),
+):
     if not file.filename.endswith(".pdf"):
         raise HTTPException(400, "Only PDF files are supported on this endpoint")
     if issuer not in PARSERS:
         raise HTTPException(400, f"Unknown issuer '{issuer}'. Known: {sorted(PARSERS)}")
 
     raw = await file.read()
-    file_id, _ = filestore.store_file(raw, file.filename, issuer, "application/pdf")
+    file_id, _ = filestore.store_file(customer_id, raw, file.filename, issuer, "application/pdf")
 
     try:
-        return _ingest_mongo_file(file_id, issuer, file.filename, "application/pdf")
+        return _ingest_mongo_file(customer_id, file_id, issuer, file.filename, "application/pdf")
     except ValueError as exc:
         raise HTTPException(
             422, f"{exc} Refusing to ingest a statement that may have been parsed incorrectly."
         ) from exc
 
 
-@app.get("/summary", response_model=list[MonthlySummary])
-def summary():
-    transactions = db.fetch_all_transactions()
+def _compute_summary(customer_id: str) -> list[MonthlySummary]:
+    transactions = db.fetch_all_transactions(customer_id)
     if not transactions:
         raise HTTPException(404, "No transactions uploaded yet")
 
@@ -220,8 +303,12 @@ def summary():
     return summaries
 
 
-@app.get("/coverage", response_model=CoverageResponse)
-def coverage():
+@app.get("/summary", response_model=list[MonthlySummary])
+def summary(customer_id: str = Depends(auth.require_bearer_token)):
+    return _compute_summary(customer_id)
+
+
+def _compute_coverage(customer_id: str) -> CoverageResponse:
     """
     Which of the known accounts (PARSERS) have a statement on file for each
     month, so a gap (forgot to download/upload last month's SoFi statement,
@@ -231,7 +318,7 @@ def coverage():
     /summary already buckets by month, and avoids needing to separately
     persist each statement's declared period.
     """
-    transactions = db.fetch_all_transactions()
+    transactions = db.fetch_all_transactions(customer_id)
     current_month = date.today().strftime("%Y-%m")
 
     by_account_month: dict[str, set[str]] = defaultdict(set)
@@ -257,9 +344,14 @@ def coverage():
     return CoverageResponse(months=months, accounts=accounts)
 
 
+@app.get("/coverage", response_model=CoverageResponse)
+def coverage(customer_id: str = Depends(auth.require_bearer_token)):
+    return _compute_coverage(customer_id)
+
+
 @app.get("/insights", response_model=InsightsResponse)
-def insights():
-    monthly = summary()  # reuse the aggregation above
+def insights(customer_id: str = Depends(auth.require_bearer_token)):
+    monthly = _compute_summary(customer_id)  # reuse the aggregation above
     payload = [m.model_dump() for m in monthly]
     try:
         result = generate_insights(payload)
@@ -280,4 +372,7 @@ def insights():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "transactions_loaded": db.count_transactions()}
+    """Deliberately unauthenticated (liveness probe) and deliberately not
+    scoped data -- see docs/design-auth-and-customers.md. Use /auth/me or
+    /summary for anything customer-specific."""
+    return {"status": "ok"}

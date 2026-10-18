@@ -42,3 +42,28 @@ class AccountCoverage(BaseModel):
 class CoverageResponse(BaseModel):
     months: list[str]  # the expected range -- excludes the current, still-open month
     accounts: list[AccountCoverage]
+
+
+class AuthStatusResponse(BaseModel):
+    password_set: bool
+
+
+class SetPasswordRequest(BaseModel):
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    customer_id: str
+    name: str
+
+
+class CustomerProfile(BaseModel):
+    customer_id: str
+    name: str
+    email: str

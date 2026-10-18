@@ -55,25 +55,47 @@ sample CSV:
   (`chase-credit/`, etc.) were migrated into Mongo via
   `backend/scripts/migrate_local_files_to_mongo.py` -- those folders are no
   longer read by the running app.
-- Frontend (`frontend/`): React + Vite. Upload form now has an account
-  selector (`ACCOUNTS` in `frontend/src/api.js`, kept in sync with the
-  backend's `PARSERS` registry) that routes to either the CSV or PDF upload
-  endpoint; stacked bar chart of spend by category/month (recharts); a
-  button to fetch AI insights.
+- The whole API requires auth now. A `customers` table (`backend/db.py`)
+  plus JWT bearer tokens (`backend/auth.py`) scope every transaction,
+  ingested-file record, and Mongo-stored file to a `customer_id` — see
+  `docs/design-auth-and-customers.md`. First run shows a one-time "set
+  your password" screen (`GET /auth/status`, `POST /auth/set-password`,
+  closes itself permanently once a password exists); after that it's a
+  normal `POST /auth/login`. `/health` stays unauthenticated (pure
+  liveness, no customer data); everything else requires a bearer token.
+- Frontend (`frontend/`): React + Vite, gated by `AuthGate.jsx` (setup /
+  login / authenticated), showing "Hello {first name}" + a logout button
+  once signed in. Upload form has an account selector (`ACCOUNTS` in
+  `frontend/src/api.js`, kept in sync with the backend's `PARSERS`
+  registry) that routes to either the CSV or PDF upload endpoint; a trend
+  line (`SpendTrendChart`) and a ranked category-breakdown bar chart
+  (`CategoryBreakdownChart`, with a month picker) replaced the original
+  single stacked bar; a "Statement coverage" card flags accounts missing
+  a recent month's statement; a button to fetch AI insights.
 - Categorization is three-tier by design — see "Architecture decisions"
   below. Each transaction is tagged with `category_source` (`rule` / `hf` /
   `fallback`) and a confidence score, so the "most spend resolves through
   the free tier" claim is measurable per real statement, not just asserted
   against the 25-row sample set.
-- Automated tests exist now: 75 passing (`backend/tests/`), covering the API,
-  the categorizer, and the Chase/Capital One/SoFi parsers.
+- Automated tests exist now: 105 passing (`backend/tests/`), covering the
+  API (including the full auth flow and per-customer data isolation), the
+  categorizer, the Chase/Capital One/SoFi parsers, and `filestore.py`.
 - Still not done: no CI, no evaluation harness yet for `/insights` output
-  quality, the `/insights` Claude call now has proper error handling
-  (missing API key / Claude API errors / malformed JSON all return a clear
-  `HTTPException` instead of a bare 500) but there's still no test coverage
-  asserting those paths specifically.
+  quality, no password-reset flow (not needed yet for a single-customer
+  app — see the design doc's "what's explicitly not built" section).
 
 ## Architecture decisions (and the reasoning to reuse/defend)
+
+**Real customer accounts and JWT auth, not a cosmetic "Hello {name}."**
+Every table and endpoint used to assume exactly one implicit user. A
+`customers` table plus `customer_id` scoping on transactions, ingested
+files, and Mongo-stored statements is a genuine multi-user-ready
+foundation, even though exactly one customer exists today — the
+difference between a decoration and an architecture decision. First run
+is a one-time password-bootstrap screen rather than a registration form
+(the right shape for an app with exactly one intended user), closing
+itself permanently the moment a password is set. See
+`docs/design-auth-and-customers.md`.
 
 **Three-tier categorization instead of "just call an LLM on everything."**
 Tier 1 is keyword/merchant rules (`backend/categorizer.py::RULES`) — free,
@@ -129,6 +151,13 @@ for the architect track this project is meant to support.
   this reason — never remove that from `.gitignore`, and never commit a real
   CSV export.
 - `ANTHROPIC_API_KEY` must be set as an environment variable, never hardcoded.
+- `JWT_SECRET_KEY` (env var, never hardcoded) should be set in `backend/.env`
+  for persistent login sessions. If unset, a random key is generated at
+  each process start, which invalidates every issued token on restart —
+  expected and documented (`docs/design-auth-and-customers.md`), not a bug,
+  but worth setting once `.env` exists anyway. Never ask the user for their
+  actual password or paste it into a session — it's typed directly into
+  the browser's login/setup form and never touches this codebase.
 - The backend needs MongoDB reachable before it will start (startup fails
   loudly rather than silently skipping file loading, same philosophy as a
   corrupt SQLite file). Docker isn't installed on this machine; run it via

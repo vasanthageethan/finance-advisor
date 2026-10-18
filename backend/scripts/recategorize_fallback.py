@@ -22,7 +22,11 @@ from categorizer import categorize  # noqa: E402
 
 def main() -> None:
     db.connect()
-    rows = db.fetch_transactions_by_source("fallback")
+    customer = db.get_any_customer()
+    if customer is None:
+        print("No customer account exists yet -- start the backend once first.")
+        return
+    rows = db.fetch_transactions_by_source(customer["customer_id"], "fallback")
 
     if not rows:
         print("Nothing tagged 'fallback' -- nothing to do.")

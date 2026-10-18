@@ -12,7 +12,7 @@ SAMPLE_CHECKING_PDF = sorted(glob.glob(str(REPO_ROOT / "chase-checking" / "*.pdf
 def test_health_before_any_upload(client):
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok", "transactions_loaded": 0}
+    assert resp.json() == {"status": "ok"}
 
 
 def test_upload_sample_csv(client, sample_csv_path):
@@ -34,12 +34,13 @@ def test_upload_sample_csv(client, sample_csv_path):
     assert all(row["category"] is not None for row in data)
 
 
-def test_upload_updates_health_count(client, sample_csv_path):
+def test_upload_updates_transaction_count(client, customer, sample_csv_path):
+    import db as db_module
+
     with open(sample_csv_path, "rb") as f:
         client.post("/upload", files={"file": ("sample_transactions.csv", f, "text/csv")})
 
-    resp = client.get("/health")
-    assert resp.json()["transactions_loaded"] == 25
+    assert db_module.count_transactions(customer["customer_id"]) == 25
 
 
 def test_upload_rejects_non_csv_file(client):
@@ -169,10 +170,11 @@ def test_upload_statement_checking_amounts_use_app_sign_convention(client):
     assert all(t["amount"] < 0 for t in payroll)
 
 
-def test_summary_excludes_credit_card_payment_category(client):
+def test_summary_excludes_credit_card_payment_category(client, customer):
     import db as db_module
 
     db_module.insert_transactions(
+        customer["customer_id"],
         [
             {
                 "date": "2026-07-05", "description": "COFFEE SHOP", "amount": 6.50,
@@ -183,7 +185,7 @@ def test_summary_excludes_credit_card_payment_category(client):
                 "category": "Credit Card Payment", "category_source": "rule", "confidence": 1.0,
                 "account": "chase_checking",
             },
-        ]
+        ],
     )
 
     resp = client.get("/summary")
@@ -202,7 +204,7 @@ def test_coverage_with_no_transactions(client):
     assert all(a["missing_months"] == [] for a in data["accounts"])
 
 
-def test_coverage_flags_missing_months_per_account(client):
+def test_coverage_flags_missing_months_per_account(client, customer):
     import db as db_module
 
     def txn(date, account):
@@ -212,6 +214,7 @@ def test_coverage_flags_missing_months_per_account(client):
         }
 
     db_module.insert_transactions(
+        customer["customer_id"],
         [
             txn("2026-01-01", "chase_credit"),
             txn("2026-02-01", "chase_credit"),
@@ -222,7 +225,7 @@ def test_coverage_flags_missing_months_per_account(client):
             # an "other"/generic CSV upload with no known account shouldn't
             # affect coverage at all
             txn("2026-02-15", None),
-        ]
+        ],
     )
 
     resp = client.get("/coverage")
@@ -237,7 +240,7 @@ def test_coverage_flags_missing_months_per_account(client):
     assert by_account["capitalone_credit"]["missing_months"] == ["2026-01", "2026-02", "2026-03"]
 
 
-def test_summary_flags_partial_months(client):
+def test_summary_flags_partial_months(client, customer):
     import db as db_module
     from statement_parsers import PARSERS
 
@@ -250,8 +253,8 @@ def test_summary_flags_partial_months(client):
     # 2026-01: every known account has a transaction -- complete.
     # 2026-02: only one account does -- partial.
     db_module.insert_transactions(
-        [txn("2026-01-01", account) for account in PARSERS]
-        + [txn("2026-02-01", "chase_credit")]
+        customer["customer_id"],
+        [txn("2026-01-01", account) for account in PARSERS] + [txn("2026-02-01", "chase_credit")],
     )
 
     resp = client.get("/summary")
