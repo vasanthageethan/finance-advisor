@@ -3,7 +3,6 @@ import json
 import tempfile
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import anthropic
 import pandas as pd
@@ -11,6 +10,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 import db
+import filestore
 from categorizer import NON_SPEND_CATEGORIES, categorize
 from insights import generate_insights
 from models import CategorySummary, InsightsResponse, MonthlySummary, Transaction
@@ -20,19 +20,6 @@ from statement_parsers.base import RawTransaction
 # Expected CSV columns. Adjust to match your bank/card export headers --
 # most exports use some variant of these three.
 EXPECTED_COLUMNS = {"date", "description", "amount"}
-
-# Real statement PDFs live outside the repo tree in gitignored folders at
-# the project root (never committed -- they're actual financial
-# documents). If they're present locally, load them automatically on
-# startup so the dashboard has data without re-uploading through the
-# browser every session.
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-LOCAL_STATEMENT_DIRS = {
-    "chase_credit": _REPO_ROOT / "chase-credit",
-    "chase_checking": _REPO_ROOT / "chase-checking",
-    "capitalone_credit": _REPO_ROOT / "capitalone-credit",
-    "sofi_checking_savings": _REPO_ROOT / "sofi-checkings-savings",
-}
 
 
 def _ingest_raw_transactions(raw_transactions, account: str | None) -> list[Transaction]:
@@ -58,34 +45,66 @@ def _ingest_raw_transactions(raw_transactions, account: str | None) -> list[Tran
     return new_transactions
 
 
-def _load_local_statements() -> None:
-    for issuer, directory in LOCAL_STATEMENT_DIRS.items():
-        if not directory.is_dir():
+def _parse_csv_bytes(raw: bytes) -> list[RawTransaction]:
+    df = pd.read_csv(io.BytesIO(raw))
+    df.columns = [c.strip().lower() for c in df.columns]
+
+    missing = EXPECTED_COLUMNS - set(df.columns)
+    if missing:
+        raise ValueError(f"CSV is missing required column(s): {sorted(missing)}. Expected at least: {sorted(EXPECTED_COLUMNS)}")
+
+    return [
+        RawTransaction(date=row["date"], description=str(row["description"]), amount=float(row["amount"]))
+        for _, row in df.iterrows()
+    ]
+
+
+def _ingest_mongo_file(file_id: str, issuer: str, filename: str, content_type: str) -> list[Transaction]:
+    """Parse one already-stored-in-Mongo file and load it into SQLite,
+    recording the file id so it's never re-parsed. Raises on a CSV schema
+    problem or a PDF that fails reconciliation -- callers decide whether
+    that's fatal (an explicit upload) or just skipped (startup catch-up)."""
+    raw = filestore.get_file_bytes(file_id)
+
+    if content_type == "text/csv":
+        raw_transactions = _parse_csv_bytes(raw)
+    else:
+        with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
+            tmp.write(raw)
+            tmp.flush()
+            parsed = parse_statement(issuer, tmp.name)
+        if not parsed.reconciliation.reconciled:
+            raise ValueError(
+                "Parsed transactions don't reconcile against the statement's own declared total "
+                f"(parsed {parsed.reconciliation.parsed_total}, declared {parsed.reconciliation.declared_total})."
+            )
+        raw_transactions = parsed.transactions
+
+    transactions = _ingest_raw_transactions(raw_transactions, issuer)
+    db.mark_file_ingested(file_id, issuer, filename)
+    return transactions
+
+
+def _load_from_filestore() -> None:
+    """Startup catch-up: parse any Mongo-stored file that hasn't made it
+    into SQLite yet. Mongo is the source of truth for 'what was uploaded';
+    this is what keeps SQLite caught up with it across restarts."""
+    for f in filestore.list_files():
+        if db.is_file_ingested(f["file_id"]):
             continue
-        for pdf_path in sorted(directory.glob("*.pdf")):
-            if db.is_statement_ingested(issuer, pdf_path.name):
-                continue
-            try:
-                parsed = parse_statement(issuer, str(pdf_path))
-            except Exception as exc:
-                print(f"[startup] skipping {pdf_path.name}: {exc}")
-                continue
-            if not parsed.reconciliation.reconciled:
-                print(
-                    f"[startup] skipping {pdf_path.name}: parsed total "
-                    f"{parsed.reconciliation.parsed_total} != declared total "
-                    f"{parsed.reconciliation.declared_total}"
-                )
-                continue
-            _ingest_raw_transactions(parsed.transactions, issuer)
-            db.mark_statement_ingested(issuer, pdf_path.name)
-            print(f"[startup] loaded {len(parsed.transactions)} transactions from {pdf_path.name}")
+        try:
+            _ingest_mongo_file(f["file_id"], f["issuer"], f["filename"], f["content_type"])
+        except Exception as exc:
+            print(f"[startup] skipping {f['filename']}: {exc}")
+            continue
+        print(f"[startup] loaded transactions from {f['filename']}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.connect()
-    _load_local_statements()
+    filestore.connect()
+    _load_from_filestore()
     yield
 
 
@@ -105,22 +124,19 @@ async def upload_statement(file: UploadFile = File(...), account: str | None = F
         raise HTTPException(400, "Only CSV files are supported on this endpoint")
 
     raw = await file.read()
-    df = pd.read_csv(io.BytesIO(raw))
-    df.columns = [c.strip().lower() for c in df.columns]
+    issuer = account or "other"
 
-    missing = EXPECTED_COLUMNS - set(df.columns)
-    if missing:
-        raise HTTPException(
-            400,
-            f"CSV is missing required column(s): {sorted(missing)}. "
-            f"Expected at least: {sorted(EXPECTED_COLUMNS)}",
-        )
+    try:
+        raw_transactions = _parse_csv_bytes(raw)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
-    raw_transactions = [
-        RawTransaction(date=row["date"], description=str(row["description"]), amount=float(row["amount"]))
-        for _, row in df.iterrows()
-    ]
-    return _ingest_raw_transactions(raw_transactions, account)
+    # Store the raw upload in Mongo regardless -- it's the landing zone,
+    # not conditional on parsing having gone well.
+    file_id, _ = filestore.store_file(raw, file.filename, issuer, "text/csv")
+    transactions = _ingest_raw_transactions(raw_transactions, account)
+    db.mark_file_ingested(file_id, issuer, file.filename)
+    return transactions
 
 
 @app.post("/upload/statement", response_model=list[Transaction])
@@ -131,20 +147,14 @@ async def upload_pdf_statement(file: UploadFile = File(...), issuer: str = Form(
         raise HTTPException(400, f"Unknown issuer '{issuer}'. Known: {sorted(PARSERS)}")
 
     raw = await file.read()
-    with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
-        tmp.write(raw)
-        tmp.flush()
-        parsed = parse_statement(issuer, tmp.name)
+    file_id, _ = filestore.store_file(raw, file.filename, issuer, "application/pdf")
 
-    if not parsed.reconciliation.reconciled:
+    try:
+        return _ingest_mongo_file(file_id, issuer, file.filename, "application/pdf")
+    except ValueError as exc:
         raise HTTPException(
-            422,
-            "Parsed transactions don't reconcile against the statement's own declared total "
-            f"(parsed {parsed.reconciliation.parsed_total}, declared {parsed.reconciliation.declared_total}). "
-            "Refusing to ingest a statement that may have been parsed incorrectly.",
-        )
-
-    return _ingest_raw_transactions(parsed.transactions, issuer)
+            422, f"{exc} Refusing to ingest a statement that may have been parsed incorrectly."
+        ) from exc
 
 
 @app.get("/summary", response_model=list[MonthlySummary])

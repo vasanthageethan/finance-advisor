@@ -1,8 +1,10 @@
 """
-SQLite persistence for transactions and which real statement files have
-already been ingested. Replaces the Phase 1 in-memory list so data survives
-a backend restart. See docs/design-sqlite-persistence.md for the tradeoffs
--- this is deliberately not DynamoDB, which is a Phase 5 decision.
+SQLite persistence for parsed/categorized transactions, and which Mongo
+(GridFS) file ids have already been parsed into them. Replaces the Phase 1
+in-memory list so data survives a backend restart. See
+docs/design-sqlite-persistence.md and docs/design-mongodb-file-store.md
+for the tradeoffs -- this is deliberately not DynamoDB, which is a Phase 5
+decision.
 """
 
 import sqlite3
@@ -22,10 +24,10 @@ CREATE TABLE IF NOT EXISTS transactions (
     account TEXT
 );
 
-CREATE TABLE IF NOT EXISTS ingested_statements (
+CREATE TABLE IF NOT EXISTS ingested_files (
+    mongo_file_id TEXT PRIMARY KEY,
     issuer TEXT NOT NULL,
-    filename TEXT NOT NULL,
-    PRIMARY KEY (issuer, filename)
+    filename TEXT NOT NULL
 );
 """
 
@@ -73,17 +75,18 @@ def count_transactions() -> int:
     return conn.execute("SELECT COUNT(*) AS n FROM transactions").fetchone()["n"]
 
 
-def is_statement_ingested(issuer: str, filename: str) -> bool:
+def is_file_ingested(mongo_file_id: str) -> bool:
     conn = _conn()
-    row = conn.execute(
-        "SELECT 1 FROM ingested_statements WHERE issuer = ? AND filename = ?", (issuer, filename)
-    ).fetchone()
+    row = conn.execute("SELECT 1 FROM ingested_files WHERE mongo_file_id = ?", (mongo_file_id,)).fetchone()
     return row is not None
 
 
-def mark_statement_ingested(issuer: str, filename: str) -> None:
+def mark_file_ingested(mongo_file_id: str, issuer: str, filename: str) -> None:
     conn = _conn()
-    conn.execute("INSERT OR IGNORE INTO ingested_statements (issuer, filename) VALUES (?, ?)", (issuer, filename))
+    conn.execute(
+        "INSERT OR IGNORE INTO ingested_files (mongo_file_id, issuer, filename) VALUES (?, ?, ?)",
+        (mongo_file_id, issuer, filename),
+    )
     conn.commit()
 
 
@@ -91,5 +94,5 @@ def clear_all() -> None:
     """Test-only: wipe both tables without closing the connection."""
     conn = _conn()
     conn.execute("DELETE FROM transactions")
-    conn.execute("DELETE FROM ingested_statements")
+    conn.execute("DELETE FROM ingested_files")
     conn.commit()

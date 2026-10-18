@@ -41,10 +41,17 @@ sample CSV:
   yet written up as its own design doc. `/summary` aggregates spend by month
   and category; `/insights` calls Claude live (model `claude-sonnet-5`) to
   generate a written trend narrative and flag anomalies.
-- On backend startup, any real statement PDFs present in the gitignored
-  per-issuer folders at the repo root (`chase-credit/`, `chase-checking/`,
-  `capitalone-credit/`, `sofi-checkings-savings/`) are auto-loaded so the
-  dashboard has data without re-uploading through the browser each session.
+- Every uploaded file (CSV or PDF) is stored raw in MongoDB/GridFS first
+  (`backend/filestore.py`, deduplicated by content hash), then parsed into
+  SQLite (`backend/db.py`) -- a raw-landing-zone-vs-curated-store split, see
+  `docs/design-mongodb-file-store.md` and `docs/design-sqlite-persistence.md`.
+  On backend startup, any Mongo file not yet reflected in SQLite is parsed
+  and loaded automatically, so the dashboard has data without re-uploading
+  through the browser each session. The real statement PDFs that used to
+  live directly in gitignored per-issuer folders at the repo root
+  (`chase-credit/`, etc.) were migrated into Mongo via
+  `backend/scripts/migrate_local_files_to_mongo.py` -- those folders are no
+  longer read by the running app.
 - Frontend (`frontend/`): React + Vite. Upload form now has an account
   selector (`ACCOUNTS` in `frontend/src/api.js`, kept in sync with the
   backend's `PARSERS` registry) that routes to either the CSV or PDF upload
@@ -57,11 +64,11 @@ sample CSV:
   against the 25-row sample set.
 - Automated tests exist now: 75 passing (`backend/tests/`), covering the API,
   the categorizer, and the Chase/Capital One/SoFi parsers.
-- Still not done: no persistence layer (in-memory store only, resets on
-  backend restart — Phase 5 territory), no CI, error handling around the
-  Claude call in `insights.py` is still happy-path only (an unparseable JSON
-  response from Claude isn't handled), and there's no evaluation harness yet
-  for `/insights` output quality.
+- Still not done: no CI, no evaluation harness yet for `/insights` output
+  quality, the `/insights` Claude call now has proper error handling
+  (missing API key / Claude API errors / malformed JSON all return a clear
+  `HTTPException` instead of a bare 500) but there's still no test coverage
+  asserting those paths specifically.
 
 ## Architecture decisions (and the reasoning to reuse/defend)
 
@@ -78,17 +85,22 @@ bottleneck. This is a pattern worth explicitly naming in interviews and
 LinkedIn posts — it's the same tiering logic that matters in the MCP/log
 anomaly-detection work at Dish.
 
-**In-memory store for now, DynamoDB later.** Phase 1 intentionally skips a
-real database to keep the loop fast. Phase 5 (AWS re-platform) is where this
-becomes a real architectural decision — document the tradeoffs when that
-migration happens (query patterns, access frequency, schema) rather than
-just swapping the storage class.
+**Polyglot persistence: MongoDB for raw files, SQLite for the relational
+store.** Every uploaded file lands in MongoDB/GridFS unmodified first
+(deduplicated by SHA-256, not filename), and only the parsed, categorized
+result goes into SQLite's `transactions` table. This is a real raw-vs-curated
+split, not two databases doing the same job — worth naming explicitly as
+the same shape as a landing zone feeding a warehouse. Neither is the Phase 5
+decision: DynamoDB and S3 are the AWS-platform equivalents of this same
+split, revisited with that migration's own tradeoffs (query patterns, access
+frequency, schema) rather than assumed to carry over unchanged. See
+`docs/design-mongodb-file-store.md` and `docs/design-sqlite-persistence.md`.
 
-**CSV-first ingestion.** Statement PDFs were explicitly deferred — CSV export
-from the bank/card portal is the input for now. If PDF ingestion is added
-later, treat it as a distinct phase with its own design doc (OCR accuracy,
-statement format variance across issuers are real problems, not a quick
-addition).
+**PDF ingestion is live, not deferred.** Four issuer-specific parsers
+(`backend/statement_parsers/`) handle real Chase/Capital One/SoFi PDF
+statements, each required to reconcile its parsed total against the
+statement's own declared total before anything is ingested — a fail-closed
+data-integrity check worth its own design doc if it hasn't gotten one yet.
 
 ## Roadmap (detail in CAREER_ROADMAP.md)
 
@@ -114,6 +126,15 @@ for the architect track this project is meant to support.
   this reason — never remove that from `.gitignore`, and never commit a real
   CSV export.
 - `ANTHROPIC_API_KEY` must be set as an environment variable, never hardcoded.
+- The backend needs MongoDB reachable before it will start (startup fails
+  loudly rather than silently skipping file loading, same philosophy as a
+  corrupt SQLite file). Docker isn't installed on this machine; run it via
+  Podman instead: `podman machine start` once, then
+  `podman run -d --name finance-mongo -p 27017:27017 -v finance-mongo-data:/data/db mongo:7`.
+  `docker-compose.yml` at the repo root is kept for portability if real
+  Docker is ever installed. `MONGODB_URI` (default
+  `mongodb://localhost:27017`) is an environment variable, never hardcoded,
+  same convention as `ANTHROPIC_API_KEY`.
 - Extend `RULES` in `categorizer.py` as real merchant strings are observed —
   this is expected to grow over time and is the highest-leverage, lowest-cost
   place to improve categorization accuracy.
