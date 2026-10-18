@@ -42,3 +42,23 @@ export function toChartRows(summary, topCategories) {
     return row;
   });
 }
+
+// Rank one month's categories high -> low for a breakdown chart, folding
+// anything outside the global top-7 into "Other" (same entity -> color
+// mapping as the trend chart, just reordered by this month's values).
+export function monthBreakdown(monthSummary, colorMap, topCategories) {
+  const topSet = new Set(topCategories);
+  const rows = [];
+  let otherTotal = 0;
+  for (const c of monthSummary.by_category) {
+    if (topSet.has(c.category)) {
+      rows.push({ category: c.category, total: c.total, color: colorMap.get(c.category) });
+    } else {
+      otherTotal += c.total;
+    }
+  }
+  if (otherTotal > 0) {
+    rows.push({ category: "Other", total: Math.round(otherTotal * 100) / 100, color: colorMap.get("Other") });
+  }
+  return rows.sort((a, b) => b.total - a.total);
+}
