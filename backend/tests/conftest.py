@@ -6,15 +6,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pytest
 from fastapi.testclient import TestClient
 
+import db as db_module
 import main as main_module
 
 
 @pytest.fixture(autouse=True)
 def reset_transactions():
-    """Each test gets a clean in-memory transaction store."""
-    main_module._TRANSACTIONS.clear()
+    """Each test gets its own throwaway in-memory SQLite DB -- never the real
+    backend/data/finance.db -- so tests can't see each other's data or a
+    developer's real statements."""
+    db_module.connect(":memory:")
     yield
-    main_module._TRANSACTIONS.clear()
+    db_module.clear_all()
 
 
 @pytest.fixture

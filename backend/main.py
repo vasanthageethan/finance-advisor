@@ -1,22 +1,21 @@
 import io
+import json
 import tempfile
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import anthropic
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+import db
 from categorizer import NON_SPEND_CATEGORIES, categorize
 from insights import generate_insights
 from models import CategorySummary, InsightsResponse, MonthlySummary, Transaction
 from statement_parsers import PARSERS, parse_statement
 from statement_parsers.base import RawTransaction
-
-# In-memory store for the local prototype. Phase 5 (AWS re-platform) swaps
-# this for DynamoDB.
-_TRANSACTIONS: list[Transaction] = []
 
 # Expected CSV columns. Adjust to match your bank/card export headers --
 # most exports use some variant of these three.
@@ -42,7 +41,20 @@ def _ingest_raw_transactions(raw_transactions, account: str | None) -> list[Tran
         cat = categorize(raw.description)
         txn = Transaction(date=raw.date, description=raw.description, amount=raw.amount, account=account, **cat)
         new_transactions.append(txn)
-    _TRANSACTIONS.extend(new_transactions)
+    db.insert_transactions(
+        [
+            {
+                "date": t.date.isoformat(),
+                "description": t.description,
+                "amount": t.amount,
+                "category": t.category,
+                "category_source": t.category_source,
+                "confidence": t.confidence,
+                "account": t.account,
+            }
+            for t in new_transactions
+        ]
+    )
     return new_transactions
 
 
@@ -51,6 +63,8 @@ def _load_local_statements() -> None:
         if not directory.is_dir():
             continue
         for pdf_path in sorted(directory.glob("*.pdf")):
+            if db.is_statement_ingested(issuer, pdf_path.name):
+                continue
             try:
                 parsed = parse_statement(issuer, str(pdf_path))
             except Exception as exc:
@@ -64,11 +78,13 @@ def _load_local_statements() -> None:
                 )
                 continue
             _ingest_raw_transactions(parsed.transactions, issuer)
+            db.mark_statement_ingested(issuer, pdf_path.name)
             print(f"[startup] loaded {len(parsed.transactions)} transactions from {pdf_path.name}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    db.connect()
     _load_local_statements()
     yield
 
@@ -133,12 +149,13 @@ async def upload_pdf_statement(file: UploadFile = File(...), issuer: str = Form(
 
 @app.get("/summary", response_model=list[MonthlySummary])
 def summary():
-    if not _TRANSACTIONS:
+    transactions = db.fetch_all_transactions()
+    if not transactions:
         raise HTTPException(404, "No transactions uploaded yet")
 
-    by_month: dict[str, list[Transaction]] = defaultdict(list)
-    for t in _TRANSACTIONS:
-        month_key = t.date.strftime("%Y-%m")
+    by_month: dict[str, list] = defaultdict(list)
+    for t in transactions:
+        month_key = t["date"][:7]  # "YYYY-MM-DD" -> "YYYY-MM"
         by_month[month_key].append(t)
 
     summaries = []
@@ -147,21 +164,23 @@ def summary():
         # transfers like paying off your own credit card from checking --
         # those aren't spend, and double-count purchases already counted
         # on the other account's statement.
-        txns = [t for t in by_month[month] if t.amount > 0 and (t.category or "Other") not in NON_SPEND_CATEGORIES]
-        total = sum(t.amount for t in txns)
+        txns = [
+            t for t in by_month[month] if t["amount"] > 0 and (t["category"] or "Other") not in NON_SPEND_CATEGORIES
+        ]
+        total = sum(t["amount"] for t in txns)
 
-        by_cat: dict[str, list[Transaction]] = defaultdict(list)
+        by_cat: dict[str, list] = defaultdict(list)
         for t in txns:
-            by_cat[t.category or "Other"].append(t)
+            by_cat[t["category"] or "Other"].append(t)
 
         cat_summaries = [
             CategorySummary(
                 category=cat,
-                total=round(sum(t.amount for t in items), 2),
+                total=round(sum(t["amount"] for t in items), 2),
                 transaction_count=len(items),
-                pct_of_spend=round(sum(t.amount for t in items) / total * 100, 1) if total else 0.0,
+                pct_of_spend=round(sum(t["amount"] for t in items) / total * 100, 1) if total else 0.0,
             )
-            for cat, items in sorted(by_cat.items(), key=lambda kv: -sum(t.amount for t in kv[1]))
+            for cat, items in sorted(by_cat.items(), key=lambda kv: -sum(t["amount"] for t in kv[1]))
         ]
 
         summaries.append(MonthlySummary(month=month, total_spend=round(total, 2), by_category=cat_summaries))
@@ -173,10 +192,20 @@ def summary():
 def insights():
     monthly = summary()  # reuse the aggregation above
     payload = [m.model_dump() for m in monthly]
-    result = generate_insights(payload)
+    try:
+        result = generate_insights(payload)
+    except RuntimeError as exc:
+        # ANTHROPIC_API_KEY not configured -- a setup problem, not a Claude failure.
+        raise HTTPException(503, f"AI insights are unavailable: {exc}") from exc
+    except anthropic.AnthropicError as exc:
+        raise HTTPException(503, f"AI insights are temporarily unavailable (Claude API error: {exc}).") from exc
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            502, "AI insights are unavailable: the model returned a response in an unexpected format."
+        ) from exc
     return InsightsResponse(**result)
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "transactions_loaded": len(_TRANSACTIONS)}
+    return {"status": "ok", "transactions_loaded": db.count_transactions()}

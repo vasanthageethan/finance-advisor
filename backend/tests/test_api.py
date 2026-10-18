@@ -170,19 +170,19 @@ def test_upload_statement_checking_amounts_use_app_sign_convention(client):
 
 
 def test_summary_excludes_credit_card_payment_category(client):
-    import main as main_module
-    from models import Transaction
+    import db as db_module
 
-    main_module._TRANSACTIONS.extend(
+    db_module.insert_transactions(
         [
-            Transaction(
-                date="2026-07-05", description="COFFEE SHOP", amount=6.50,
-                category="Dining & Restaurants", category_source="rule", confidence=1.0,
-            ),
-            Transaction(
-                date="2026-07-10", description="Payment To Chase Card", amount=500.00,
-                category="Credit Card Payment", category_source="rule", confidence=1.0, account="chase_checking",
-            ),
+            {
+                "date": "2026-07-05", "description": "COFFEE SHOP", "amount": 6.50,
+                "category": "Dining & Restaurants", "category_source": "rule", "confidence": 1.0, "account": None,
+            },
+            {
+                "date": "2026-07-10", "description": "Payment To Chase Card", "amount": 500.00,
+                "category": "Credit Card Payment", "category_source": "rule", "confidence": 1.0,
+                "account": "chase_checking",
+            },
         ]
     )
 
