@@ -13,6 +13,15 @@
   --baseline: #c3c2b7;
   --border-hairline: rgba(11, 11, 11, 0.1);
 
+  /* Fixed app-shell backdrop -- deliberately not theme-swapped with the
+     rest of the tokens above; cards (--surface-1) float on top of it in
+     both light and dark mode. Anything sitting directly on the gradient
+     (not inside a card) needs its own fixed light text color below, since
+     --text-primary flips to near-black in light mode. */
+  --page-gradient: linear-gradient(160deg, #060a16 0%, #0d1830 45%, #15284d 100%);
+  --on-gradient-primary: #f4f6fb;
+  --on-gradient-secondary: #a9b4c9;
+
   /* Categorical palette, fixed order -- dataviz skill reference instance. */
   --series-1: #2a78d6; /* blue */
   --series-2: #eb6834; /* orange */
@@ -28,14 +37,14 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --surface-1: #1a1a19;
-    --page-plane: #0d0d0d;
+    --surface-1: #121d33;
+    --page-plane: #0c1526;
     --text-primary: #f0efec;
     --text-secondary: #c3c2b7;
-    --text-muted: #898781;
-    --gridline: #2c2c2a;
-    --baseline: #383835;
-    --border-hairline: rgba(255, 255, 255, 0.1);
+    --text-muted: #8d97ab;
+    --gridline: #27324a;
+    --baseline: #3a4560;
+    --border-hairline: rgba(255, 255, 255, 0.12);
 
     --series-1: #3987e5;
     --series-2: #d95926;
@@ -50,6 +59,8 @@
 }
 
 body {
-  background: var(--page-plane);
+  background: var(--page-gradient);
+  background-attachment: fixed;
   color: var(--text-primary);
+  min-height: 100vh;
 }

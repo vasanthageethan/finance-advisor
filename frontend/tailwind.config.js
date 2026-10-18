@@ -13,6 +13,10 @@ export default {
           muted: "var(--text-muted)",
         },
         hairline: "var(--border-hairline)",
+        onGradient: {
+          primary: "var(--on-gradient-primary)",
+          secondary: "var(--on-gradient-secondary)",
+        },
         grid: "var(--gridline)",
         baseline: "var(--baseline)",
         series: {
