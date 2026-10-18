@@ -35,6 +35,6 @@ export async function getSummary() {
 
 export async function getInsights() {
   const res = await fetch(`${BASE_URL}/insights`);
-  if (!res.ok) throw new Error("Could not generate insights");
+  if (!res.ok) throw new Error((await res.json()).detail || "Could not generate insights");
   return res.json();
 }
