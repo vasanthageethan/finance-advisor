@@ -7,3 +7,12 @@ frontend/dist/
 .env
 .claude/settings.local.json
 .claude/prompt-coaching-log.md
+.DS_Store
+
+# Real bank/card statements -- never commit actual financial documents
+chase-credit/
+chase-checking/
+capitalone-credit/
+sofi-checkings-savings/
+*.pdf
+

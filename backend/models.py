@@ -9,8 +9,9 @@ class Transaction(BaseModel):
     description: str
     amount: float  # positive = spend, negative = refund/credit
     category: Optional[str] = None
-    category_source: Optional[str] = None  # "rule" | "hf" | "claude" | "manual"
+    category_source: Optional[str] = None  # "rule" | "hf" | "fallback" | "claude" | "manual"
     confidence: Optional[float] = None
+    account: Optional[str] = None  # e.g. "chase_credit", "chase_checking" -- which statement this came from
 
 
 class CategorySummary(BaseModel):

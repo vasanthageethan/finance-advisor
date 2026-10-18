@@ -1,6 +1,6 @@
 import pytest
 
-from categorizer import CATEGORIES, categorize, rule_based_category
+from categorizer import CATEGORIES, NON_SPEND_CATEGORIES, categorize, rule_based_category
 
 
 @pytest.mark.parametrize(
@@ -8,7 +8,7 @@ from categorizer import CATEGORIES, categorize, rule_based_category
     [
         ("TRADER JOE'S #123", "Groceries"),
         ("SHELL OIL 5741", "Gas & Fuel"),
-        ("NETFLIX.COM", "Subscriptions & Entertainment"),
+        ("NETFLIX.COM", "Subscriptions"),
         ("STARBUCKS STORE 4521", "Dining & Restaurants"),
         ("AMAZON.COM*A1B2C3", "Shopping"),
         ("PAYROLL DIRECT DEPOSIT", "Income & Transfers"),
@@ -19,6 +19,19 @@ from categorizer import CATEGORIES, categorize, rule_based_category
         ("APARTMENTS LLC RENT", "Rent & Housing"),
         ("DELTA AIR LINES", "Travel"),
         ("LATE FEE CHARGE", "Fees & Interest"),
+        ("Payment To Chase Card Ending IN 7995", "Credit Card Payment"),
+        ("Sofi Bank Transfer Varputharaj Web ID: 9039430511", "Savings Transfer"),
+        ("Zelle Payment To Ravi Thoram Jpm99Byp08Lm", "Personal Transfer (Zelle)"),
+        ("Remitly Inc Remittance Bs3Cevvx2Uwlx3N Web ID: 1452441988", "Student Loan Payment"),
+        ("Direct Payment Zelle® Payment from Sriram Subburam", "Personal Transfer (Zelle)"),
+        ("FANDANGO *8003263264CA", "Entertainment & Leisure"),
+        ("HLU*HULUPLUS hulu.com/bill CA", "Subscriptions"),
+        ("Withdrawal To Savings - 5927", "Savings Transfer"),
+        ("Deposit From Checking - 9619", "Savings Transfer"),
+        ("Withdrawal JPMORGAN CHASE BANK, NA", "Savings Transfer"),
+        ("Deposit JPMorgan Chase Ext Trnsfr", "Savings Transfer"),
+        ("Interest Earned Interest earned", "Income & Transfers"),
+        ("ELECTRONIC PAYMENT", "Credit Card Payment"),
     ],
 )
 def test_rule_based_category_matches_known_merchants(description, expected_category):
@@ -48,3 +61,10 @@ def test_categorize_falls_back_to_hf_tier_when_no_rule_matches(monkeypatch):
 def test_categories_list_is_nonempty_and_unique():
     assert len(CATEGORIES) == len(set(CATEGORIES))
     assert len(CATEGORIES) > 0
+
+
+def test_non_spend_categories_excludes_savings_and_credit_card_payment_but_not_personal_transfer():
+    assert "Savings Transfer" in NON_SPEND_CATEGORIES
+    assert "Credit Card Payment" in NON_SPEND_CATEGORIES
+    assert "Personal Transfer (Zelle)" not in NON_SPEND_CATEGORIES
+    assert "Student Loan Payment" not in NON_SPEND_CATEGORIES

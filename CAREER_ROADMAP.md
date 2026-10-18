@@ -37,3 +37,29 @@ Keep the finance advisor repo public and well-documented on GitHub, with the des
 3. Start the AWS Solutions Architect Associate study track in parallel (roughly 4-6 weeks of evening study is typical).
 4. Ship Phase 2, post again.
 5. Revisit whether Phase 5 (AWS re-platform) or continuing to Phase 3/4 makes more sense based on what's getting the most interview traction.
+
+## AI Delivery Engineer track (added 2026-10-18)
+
+This runs alongside the phased plan above, not instead of it — same project, same phases, with "AI delivery" discipline folded into whichever phase you're on. Everything below uses free/local tooling; the only recurring cost is the Claude API calls you're already paying for per request (no new subscriptions).
+
+**Why this framing differs from the architect angle:** an AI Delivery Engineer is judged less on the diagram and more on whether you tested the AI's output like a real dependency, know what it costs and how slow it is, can ship a prompt change without breaking something silently, and can explain the tradeoff to someone else. That layers directly on top of Phases 1-5, it doesn't replace them.
+
+### Sequence to induce into finance-advisor (do in this order — each step is cheap and builds on the last)
+
+1. **Evaluation harness (~1 week, do this first).** Extend `backend/tests/test_categorizer.py` and `test_api.py` with a small golden dataset: expand `sample_transactions.csv` with edge cases, add expected-category assertions, and a rubric check for `/insights` output (e.g. "flags the $400 Amazon spike," "mentions the dining trend"). This is the single thing that makes every later change safe. No new dependency — you already have pytest.
+2. **CI on every push (~1 day).** A GitHub Actions workflow (free minutes) running the full pytest suite, including the new eval harness, on every push. This is the "I ship with guardrails" proof point interviewers actually probe for.
+3. **Cost/latency logging (~3-5 days).** Wrap the Claude call in the `/insights` handler to log `{tokens_in, tokens_out, latency_ms, estimated_cost}` to a local SQLite file (stdlib `sqlite3`, no server). Surface totals with one small script or a recharts panel in the existing frontend. Turns "I route to cheap tiers to save cost" into a measured claim with a real number instead of a story.
+4. **Local RAG over transaction history (~1-2 weeks).** Add free-form Q&A ("how much did I spend on dining in March vs Feb") using `sentence-transformers` (same Hugging Face dependency family you already use for the zero-shot tier) + FAISS running in-process — pip install only, no server, no account, no cost. Demonstrates retrieval patterns beyond fixed endpoints, which is the most commonly-probed AI delivery skill after evaluation.
+5. **Expose the app as an MCP server (~1 week).** Wrap `get_summary` / `get_insights` as MCP tools with the open-source `mcp` Python SDK so Claude Desktop/Code can call your own app directly. Free, and reuses exactly what you're already building at work with MCP — just pointed at your own system instead of Dish's.
+6. **Bedrock comparison, once Phase 5 starts (a few cents, not a subscription).** Run the same `/insights` prompt through Bedrock vs. the direct Anthropic API once or twice and write a half-page comparison (cost, latency, governance/VPC isolation). One deliberate side-by-side is enough to speak to it in an interview — no need to run it continuously.
+
+Steps 1-2 should land before or alongside finishing Phase 1. Steps 3-5 interleave naturally with Phase 2/3. Step 6 belongs to Phase 5.
+
+### Practicing the same muscle at work, for free
+
+The AI pods at work already do the coding — that's structurally the same split an AI Delivery Engineer has with an agent doing implementation while you own design, evaluation, and delivery. Use that directly, at no cost:
+
+- Before a pod starts a task, write the one-paragraph design doc yourself first (same habit as the per-phase design docs above). Reps for the part of the job that doesn't get automated away.
+- Define the acceptance criteria / tests the pod's output has to pass *before* it starts, not after — same muscle as the evaluation harness in step 1, applied to code instead of prompts.
+- When a pod's output needs an architectural correction, keep a private, sanitized note of what and why. This becomes interview material and LinkedIn content later — "where AI-generated code needed a human architecture call" is a sharp, differentiated post topic most SE1s can't write.
+- If you have Dynatrace/CloudWatch access, set up or review observability for whatever the pod ships — the same skill as step 3, already half in your day job.

@@ -29,21 +29,39 @@ current as the project evolves.
 
 ## Current status
 
-Phase 1 scaffold is built and locally verified:
+Phase 1 is built and verified against real statement data, not just the
+sample CSV:
 
-- Backend (`backend/`): FastAPI app. `/upload` parses a CSV statement and
-  categorizes each transaction; `/summary` aggregates spend by month and
-  category; `/insights` calls Claude to generate a written trend narrative
-  and flag anomalies.
-- Frontend (`frontend/`): React + Vite. Upload form, stacked bar chart of
-  spend by category/month (recharts), a button to fetch AI insights.
+- Backend (`backend/`): FastAPI app. `/upload` parses a generic CSV export
+  and categorizes each transaction; `/upload/statement` parses real bank/card
+  PDF statements via `backend/statement_parsers/` (Chase checking, Chase
+  credit, Capital One credit, SoFi checking & savings) and refuses to ingest
+  a statement if the parsed transaction total doesn't reconcile against the
+  statement's own declared total — a fail-closed data-integrity check, not
+  yet written up as its own design doc. `/summary` aggregates spend by month
+  and category; `/insights` calls Claude live (model `claude-sonnet-5`) to
+  generate a written trend narrative and flag anomalies.
+- On backend startup, any real statement PDFs present in the gitignored
+  per-issuer folders at the repo root (`chase-credit/`, `chase-checking/`,
+  `capitalone-credit/`, `sofi-checkings-savings/`) are auto-loaded so the
+  dashboard has data without re-uploading through the browser each session.
+- Frontend (`frontend/`): React + Vite. Upload form now has an account
+  selector (`ACCOUNTS` in `frontend/src/api.js`, kept in sync with the
+  backend's `PARSERS` registry) that routes to either the CSV or PDF upload
+  endpoint; stacked bar chart of spend by category/month (recharts); a
+  button to fetch AI insights.
 - Categorization is three-tier by design — see "Architecture decisions"
-  below. Verified against `backend/sample_data/sample_transactions.csv`: all
-  25 sample transactions resolved through the free rule tier.
-- Not yet done: testing against real statement data, `ANTHROPIC_API_KEY`
-  has not been exercised live, no automated tests exist yet, error handling
-  is minimal (happy-path only), no persistence layer (in-memory store only,
-  resets on backend restart).
+  below. Each transaction is tagged with `category_source` (`rule` / `hf` /
+  `fallback`) and a confidence score, so the "most spend resolves through
+  the free tier" claim is measurable per real statement, not just asserted
+  against the 25-row sample set.
+- Automated tests exist now: 75 passing (`backend/tests/`), covering the API,
+  the categorizer, and the Chase/Capital One/SoFi parsers.
+- Still not done: no persistence layer (in-memory store only, resets on
+  backend restart — Phase 5 territory), no CI, error handling around the
+  Claude call in `insights.py` is still happy-path only (an unparseable JSON
+  response from Claude isn't handled), and there's no evaluation harness yet
+  for `/insights` output quality.
 
 ## Architecture decisions (and the reasoning to reuse/defend)
 

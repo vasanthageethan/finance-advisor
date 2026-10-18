@@ -1,6 +1,12 @@
+import glob
 import io
+from pathlib import Path
 
 import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+SAMPLE_CREDIT_PDF = sorted(glob.glob(str(REPO_ROOT / "chase-credit" / "*.pdf")))
+SAMPLE_CHECKING_PDF = sorted(glob.glob(str(REPO_ROOT / "chase-checking" / "*.pdf")))
 
 
 def test_health_before_any_upload(client):
@@ -111,3 +117,78 @@ def test_insights_returns_generated_narrative(client, sample_csv_path, monkeypat
     body = resp.json()
     assert body["narrative"] == "Spending rose month over month, driven by Shopping."
     assert body["flagged_anomalies"] == ["Shopping spend increased 60% in July"]
+
+
+def test_upload_statement_rejects_non_pdf_file(client):
+    resp = client.post(
+        "/upload/statement",
+        files={"file": ("statement.csv", io.BytesIO(b"not a pdf"), "text/csv")},
+        data={"issuer": "chase_credit"},
+    )
+    assert resp.status_code == 400
+    assert "Only PDF files" in resp.json()["detail"]
+
+
+def test_upload_statement_rejects_unknown_issuer(client):
+    resp = client.post(
+        "/upload/statement",
+        files={"file": ("statement.pdf", io.BytesIO(b"%PDF-1.4 fake"), "application/pdf")},
+        data={"issuer": "wells_fargo_credit"},
+    )
+    assert resp.status_code == 400
+    assert "Unknown issuer" in resp.json()["detail"]
+
+
+@pytest.mark.skipif(not SAMPLE_CREDIT_PDF, reason="no chase-credit/*.pdf samples present locally")
+def test_upload_statement_ingests_real_pdf_and_tags_account(client):
+    with open(SAMPLE_CREDIT_PDF[0], "rb") as f:
+        resp = client.post(
+            "/upload/statement",
+            files={"file": (Path(SAMPLE_CREDIT_PDF[0]).name, f, "application/pdf")},
+            data={"issuer": "chase_credit"},
+        )
+    assert resp.status_code == 200
+    transactions = resp.json()
+    assert len(transactions) > 0
+    assert all(t["account"] == "chase_credit" for t in transactions)
+
+
+@pytest.mark.skipif(not SAMPLE_CHECKING_PDF, reason="no chase-checking/*.pdf samples present locally")
+def test_upload_statement_checking_amounts_use_app_sign_convention(client):
+    with open(SAMPLE_CHECKING_PDF[0], "rb") as f:
+        resp = client.post(
+            "/upload/statement",
+            files={"file": (Path(SAMPLE_CHECKING_PDF[0]).name, f, "application/pdf")},
+            data={"issuer": "chase_checking"},
+        )
+    assert resp.status_code == 200
+    transactions = resp.json()
+    # A payroll deposit is income, which the app convention represents as negative.
+    payroll = [t for t in transactions if "payroll" in t["description"].lower()]
+    assert payroll, "expected at least one payroll transaction in the sample checking statement"
+    assert all(t["amount"] < 0 for t in payroll)
+
+
+def test_summary_excludes_credit_card_payment_category(client):
+    import main as main_module
+    from models import Transaction
+
+    main_module._TRANSACTIONS.extend(
+        [
+            Transaction(
+                date="2026-07-05", description="COFFEE SHOP", amount=6.50,
+                category="Dining & Restaurants", category_source="rule", confidence=1.0,
+            ),
+            Transaction(
+                date="2026-07-10", description="Payment To Chase Card", amount=500.00,
+                category="Credit Card Payment", category_source="rule", confidence=1.0, account="chase_checking",
+            ),
+        ]
+    )
+
+    resp = client.get("/summary")
+    assert resp.status_code == 200
+    month = resp.json()[0]
+    categories = [c["category"] for c in month["by_category"]]
+    assert "Credit Card Payment" not in categories
+    assert month["total_spend"] == pytest.approx(6.50)
