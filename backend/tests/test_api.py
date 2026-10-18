@@ -235,3 +235,27 @@ def test_coverage_flags_missing_months_per_account(client):
     assert by_account["chase_checking"]["missing_months"] == ["2026-02"]
     # a known account with zero uploads is missing every month in range
     assert by_account["capitalone_credit"]["missing_months"] == ["2026-01", "2026-02", "2026-03"]
+
+
+def test_summary_flags_partial_months(client):
+    import db as db_module
+    from statement_parsers import PARSERS
+
+    def txn(date, account, amount=1.0):
+        return {
+            "date": date, "description": "X", "amount": amount,
+            "category": "Other", "category_source": "rule", "confidence": 1.0, "account": account,
+        }
+
+    # 2026-01: every known account has a transaction -- complete.
+    # 2026-02: only one account does -- partial.
+    db_module.insert_transactions(
+        [txn("2026-01-01", account) for account in PARSERS]
+        + [txn("2026-02-01", "chase_credit")]
+    )
+
+    resp = client.get("/summary")
+    assert resp.status_code == 200
+    by_month = {m["month"]: m for m in resp.json()}
+    assert by_month["2026-01"]["is_partial"] is False
+    assert by_month["2026-02"]["is_partial"] is True

@@ -25,6 +25,7 @@ class MonthlySummary(BaseModel):
     month: str  # "2026-07"
     total_spend: float
     by_category: list[CategorySummary]
+    is_partial: bool = False  # true when not every known account has a statement in for this month yet
 
 
 class InsightsResponse(BaseModel):

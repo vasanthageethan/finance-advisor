@@ -202,7 +202,19 @@ def summary():
             for cat, items in sorted(by_cat.items(), key=lambda kv: -sum(t["amount"] for t in kv[1]))
         ]
 
-        summaries.append(MonthlySummary(month=month, total_spend=round(total, 2), by_category=cat_summaries))
+        # Same "a transaction in this month" proxy /coverage uses for "a
+        # statement was ingested" -- a month missing one of the known
+        # accounts' statements (most often just-not-downloaded-yet) would
+        # otherwise show a misleadingly narrow category breakdown with no
+        # indication anything's missing.
+        accounts_present = {t["account"] for t in by_month[month] if t["account"] in PARSERS}
+        is_partial = len(accounts_present) < len(PARSERS)
+
+        summaries.append(
+            MonthlySummary(
+                month=month, total_spend=round(total, 2), by_category=cat_summaries, is_partial=is_partial
+            )
+        )
 
     return summaries
 

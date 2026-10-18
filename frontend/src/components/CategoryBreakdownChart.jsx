@@ -45,9 +45,16 @@ function TableView({ rows }) {
   );
 }
 
+function defaultMonthIndex(summary) {
+  for (let i = summary.length - 1; i >= 0; i--) {
+    if (!summary[i].is_partial) return i;
+  }
+  return summary.length - 1; // every month is partial -- just show the latest
+}
+
 export default function CategoryBreakdownChart({ summary }) {
   const [showTable, setShowTable] = useState(false);
-  const [monthIndex, setMonthIndex] = useState(summary.length - 1);
+  const [monthIndex, setMonthIndex] = useState(() => defaultMonthIndex(summary));
 
   const { colorMap, topCategories } = useMemo(() => buildCategoryColorMap(summary), [summary]);
   const month = summary[monthIndex];
@@ -67,6 +74,7 @@ export default function CategoryBreakdownChart({ summary }) {
             {summary.map((m, i) => (
               <option key={m.month} value={i}>
                 {m.month}
+                {m.is_partial ? " (partial)" : ""}
               </option>
             ))}
           </select>
@@ -78,6 +86,13 @@ export default function CategoryBreakdownChart({ summary }) {
           </button>
         </div>
       </div>
+
+      {month.is_partial && (
+        <p className="mb-3 flex items-center gap-1.5 text-xs text-ink-secondary">
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: "var(--status-warning)" }} />
+          Not every account's {month.month} statement is in yet -- this breakdown is partial.
+        </p>
+      )}
 
       {showTable ? (
         <TableView rows={rows} />
