@@ -39,8 +39,11 @@ sample CSV:
   a statement if the parsed transaction total doesn't reconcile against the
   statement's own declared total — a fail-closed data-integrity check, not
   yet written up as its own design doc. `/summary` aggregates spend by month
-  and category; `/insights` calls Claude live (model `claude-sonnet-5`) to
-  generate a written trend narrative and flag anomalies.
+  and category; `/insights` generates a written trend narrative and flags
+  anomalies, routed through a pluggable backend (`backend/insights.py`) —
+  a local model (Ollama, `qwen2.5:3b-instruct`, free, default) when
+  `ANTHROPIC_API_KEY` is unset, Claude (`claude-sonnet-5`) when it is. See
+  `docs/design-local-insights-model.md`.
 - Every uploaded file (CSV or PDF) is stored raw in MongoDB/GridFS first
   (`backend/filestore.py`, deduplicated by content hash), then parsed into
   SQLite (`backend/db.py`) -- a raw-landing-zone-vs-curated-store split, see
@@ -135,6 +138,16 @@ for the architect track this project is meant to support.
   Docker is ever installed. `MONGODB_URI` (default
   `mongodb://localhost:27017`) is an environment variable, never hardcoded,
   same convention as `ANTHROPIC_API_KEY`.
+- This machine is an 8GB M2 and runs close to its memory limit with
+  everything else open — the Podman VM was deliberately shrunk from its
+  3.8GB default to 1.5GB (`podman machine set --memory 1536`) to make room
+  for the local insights model. Keep that in mind before adding another
+  memory-heavy local service.
+- `/insights` needs either `ollama serve` running locally with
+  `qwen2.5:3b-instruct` pulled (`ollama pull qwen2.5:3b-instruct`), or
+  `ANTHROPIC_API_KEY` set — see `docs/design-local-insights-model.md`.
+  `OLLAMA_MODEL`/`OLLAMA_URL` are environment variables with sane
+  defaults, never hardcoded.
 - Extend `RULES` in `categorizer.py` as real merchant strings are observed —
   this is expected to grow over time and is the highest-leverage, lowest-cost
   place to improve categorization accuracy.

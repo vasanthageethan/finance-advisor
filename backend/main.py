@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import anthropic
+import ollama
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -263,10 +264,13 @@ def insights():
     try:
         result = generate_insights(payload)
     except RuntimeError as exc:
-        # ANTHROPIC_API_KEY not configured -- a setup problem, not a Claude failure.
+        # A setup problem (Ollama not running, model not pulled), not a
+        # model failure -- see insights.py for which backend was tried.
         raise HTTPException(503, f"AI insights are unavailable: {exc}") from exc
     except anthropic.AnthropicError as exc:
         raise HTTPException(503, f"AI insights are temporarily unavailable (Claude API error: {exc}).") from exc
+    except ollama.ResponseError as exc:
+        raise HTTPException(503, f"AI insights are temporarily unavailable (local model error: {exc.error}).") from exc
     except json.JSONDecodeError as exc:
         raise HTTPException(
             502, "AI insights are unavailable: the model returned a response in an unexpected format."
