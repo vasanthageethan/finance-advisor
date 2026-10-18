@@ -38,3 +38,9 @@ export async function getInsights() {
   if (!res.ok) throw new Error((await res.json()).detail || "Could not generate insights");
   return res.json();
 }
+
+export async function getCoverage() {
+  const res = await fetch(`${BASE_URL}/coverage`);
+  if (!res.ok) throw new Error("No coverage data yet");
+  return res.json();
+}

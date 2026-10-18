@@ -32,6 +32,14 @@
   --series-7: #6250d6; /* violet */
   --series-8: #e34948; /* red */
   --series-other: #b3b1a8; /* de-emphasis gray, not a categorical hue */
+
+  /* Status palette -- fixed, never themed by light/dark; reserved meaning
+     (good/warning/serious/critical), always paired with an icon + label,
+     never color alone. Same hexes in both modes (dataviz skill reference). */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
 }
 
 @media (prefers-color-scheme: dark) {

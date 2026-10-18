@@ -30,3 +30,14 @@ class MonthlySummary(BaseModel):
 class InsightsResponse(BaseModel):
     narrative: str
     flagged_anomalies: list[str]
+
+
+class AccountCoverage(BaseModel):
+    account: str
+    covered_months: list[str]
+    missing_months: list[str]
+
+
+class CoverageResponse(BaseModel):
+    months: list[str]  # the expected range -- excludes the current, still-open month
+    accounts: list[AccountCoverage]

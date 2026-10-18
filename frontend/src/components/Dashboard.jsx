@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getSummary } from "../api";
 import StatTiles from "./StatTiles";
+import StatementCoverage from "./StatementCoverage";
 import SpendTrendChart from "./SpendTrendChart";
 import CategoryBreakdownChart from "./CategoryBreakdownChart";
 import InsightsPanel from "./InsightsPanel";
@@ -34,6 +35,7 @@ export default function Dashboard({ refreshKey }) {
   return (
     <div className="space-y-6">
       <StatTiles summary={summary} />
+      <StatementCoverage refreshKey={refreshKey} />
       <SpendTrendChart summary={summary} />
       <CategoryBreakdownChart summary={summary} />
       <InsightsPanel />

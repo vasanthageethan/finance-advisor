@@ -30,6 +30,12 @@ export default {
           8: "var(--series-8)",
         },
         other: "var(--series-other)",
+        status: {
+          good: "var(--status-good)",
+          warning: "var(--status-warning)",
+          serious: "var(--status-serious)",
+          critical: "var(--status-critical)",
+        },
       },
       fontFamily: {
         sans: ["system-ui", "-apple-system", '"Segoe UI"', "sans-serif"],

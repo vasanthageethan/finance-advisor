@@ -192,3 +192,46 @@ def test_summary_excludes_credit_card_payment_category(client):
     categories = [c["category"] for c in month["by_category"]]
     assert "Credit Card Payment" not in categories
     assert month["total_spend"] == pytest.approx(6.50)
+
+
+def test_coverage_with_no_transactions(client):
+    resp = client.get("/coverage")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["months"] == []
+    assert all(a["missing_months"] == [] for a in data["accounts"])
+
+
+def test_coverage_flags_missing_months_per_account(client):
+    import db as db_module
+
+    def txn(date, account):
+        return {
+            "date": date, "description": "X", "amount": 1.0,
+            "category": "Other", "category_source": "rule", "confidence": 1.0, "account": account,
+        }
+
+    db_module.insert_transactions(
+        [
+            txn("2026-01-01", "chase_credit"),
+            txn("2026-02-01", "chase_credit"),
+            txn("2026-03-01", "chase_credit"),
+            # chase_checking only has Jan and Mar -- Feb is a real gap
+            txn("2026-01-01", "chase_checking"),
+            txn("2026-03-01", "chase_checking"),
+            # an "other"/generic CSV upload with no known account shouldn't
+            # affect coverage at all
+            txn("2026-02-15", None),
+        ]
+    )
+
+    resp = client.get("/coverage")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["months"] == ["2026-01", "2026-02", "2026-03"]
+
+    by_account = {a["account"]: a for a in data["accounts"]}
+    assert by_account["chase_credit"]["missing_months"] == []
+    assert by_account["chase_checking"]["missing_months"] == ["2026-02"]
+    # a known account with zero uploads is missing every month in range
+    assert by_account["capitalone_credit"]["missing_months"] == ["2026-01", "2026-02", "2026-03"]

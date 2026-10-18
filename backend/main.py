@@ -3,6 +3,7 @@ import json
 import tempfile
 from collections import defaultdict
 from contextlib import asynccontextmanager
+from datetime import date
 
 from dotenv import load_dotenv
 
@@ -21,7 +22,7 @@ import db
 import filestore
 from categorizer import NON_SPEND_CATEGORIES, categorize
 from insights import generate_insights
-from models import CategorySummary, InsightsResponse, MonthlySummary, Transaction
+from models import AccountCoverage, CategorySummary, CoverageResponse, InsightsResponse, MonthlySummary, Transaction
 from statement_parsers import PARSERS, parse_statement
 from statement_parsers.base import RawTransaction
 
@@ -204,6 +205,43 @@ def summary():
         summaries.append(MonthlySummary(month=month, total_spend=round(total, 2), by_category=cat_summaries))
 
     return summaries
+
+
+@app.get("/coverage", response_model=CoverageResponse)
+def coverage():
+    """
+    Which of the known accounts (PARSERS) have a statement on file for each
+    month, so a gap (forgot to download/upload last month's SoFi statement,
+    say) is visible on the dashboard instead of silently skewing /summary.
+    A transaction's presence in a given month is used as the proxy for
+    "a statement for that month was ingested" -- consistent with how
+    /summary already buckets by month, and avoids needing to separately
+    persist each statement's declared period.
+    """
+    transactions = db.fetch_all_transactions()
+    current_month = date.today().strftime("%Y-%m")
+
+    by_account_month: dict[str, set[str]] = defaultdict(set)
+    all_months: set[str] = set()
+    for t in transactions:
+        if t["account"] not in PARSERS:
+            continue  # generic/"other" CSV uploads aren't tied to a monthly statement cadence
+        month = t["date"][:7]
+        if month == current_month:
+            continue  # this month's statement isn't expected yet
+        all_months.add(month)
+        by_account_month[t["account"]].add(month)
+
+    months = sorted(all_months)
+    accounts = [
+        AccountCoverage(
+            account=account,
+            covered_months=sorted(by_account_month[account]),
+            missing_months=sorted(set(months) - by_account_month[account]),
+        )
+        for account in sorted(PARSERS)
+    ]
+    return CoverageResponse(months=months, accounts=accounts)
 
 
 @app.get("/insights", response_model=InsightsResponse)
