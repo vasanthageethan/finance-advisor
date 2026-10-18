@@ -4,6 +4,14 @@ import tempfile
 from collections import defaultdict
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
+
+# Must run before any of this project's own modules are imported --
+# filestore.py reads MONGODB_URI at import time, and insights.py reads
+# ANTHROPIC_API_KEY at request time, but both should see whatever a local
+# backend/.env provides either way.
+load_dotenv()
+
 import anthropic
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
