@@ -76,16 +76,19 @@ sample CSV:
   line (`SpendTrendChart`) and a ranked category-breakdown bar chart
   (`CategoryBreakdownChart`, with a month picker) replaced the original
   single stacked bar; a "Statement coverage" card flags accounts missing
-  a recent month's statement; a button to fetch AI insights.
+  a recent month's statement; a button to fetch AI insights. The category
+  breakdown also shows a historical FX-converted amount (e.g. Student
+  Loan Payment in INR) wherever `backend/categorizer.py`'s
+  `CATEGORY_CURRENCY` maps that category to a currency.
 - Categorization is three-tier by design — see "Architecture decisions"
   below. Each transaction is tagged with `category_source` (`rule` / `hf` /
   `fallback`) and a confidence score, so the "most spend resolves through
   the free tier" claim is measurable per real statement, not just asserted
   against the 25-row sample set.
-- Automated tests exist now: 110 passing (`backend/tests/`), covering the
+- Automated tests exist now: 115 passing (`backend/tests/`), covering the
   API (including the full auth/registration flow and per-customer data
-  isolation), the categorizer, the Chase/Capital One/SoFi parsers, and
-  `filestore.py`.
+  isolation), the categorizer, the Chase/Capital One/SoFi parsers,
+  `filestore.py`, and `fx.py`.
 - Still not done: no CI, no evaluation harness yet for `/insights` output
   quality, no password-reset flow (not needed yet for a single-customer
   app — see the design doc's "what's explicitly not built" section).
@@ -98,10 +101,35 @@ Every table and endpoint used to assume exactly one implicit user. A
 files, and Mongo-stored statements is a genuine multi-user-ready
 foundation, even though exactly one customer exists today — the
 difference between a decoration and an architecture decision. First run
-is a one-time password-bootstrap screen rather than a registration form
-(the right shape for an app with exactly one intended user), closing
-itself permanently the moment a password is set. See
+is a one-time password-bootstrap screen for the first/owner account,
+closing itself permanently the moment a password is set; real
+registration (`POST /auth/register`) is open after that for any
+additional customer — a deliberate reversal of the original "no
+registration" call once a second customer became a real requirement. See
 `docs/design-auth-and-customers.md`.
+
+**Deliberately no bank-aggregator API (Plaid/SimpleFIN/etc.).** Evaluated
+and explicitly rejected: every option in that category is a third party
+that holds a copy of your transaction data, and for US retail banks
+there's no way around that -- unlike EU/UK Open Banking (PSD2), US banks
+don't expose direct consumer APIs. Manual statement download -> upload is
+the only path where nobody but the bank and this app ever sees the data,
+so it stays the ingestion method even though it's less automated. Worth
+defending explicitly: "I evaluated the industry-standard integration and
+chose not to use it, for a specific, statable reason" is a stronger
+architecture story than defaulting to whatever's common.
+
+**Historical FX conversion (`backend/fx.py`), general-purpose, not an
+INR special case.** Student Loan Payment (confirmed recurring Remitly
+transfers to India) is the one real use case today, but the conversion
+utility takes any (date, amount, currency) -- extending to a second
+country is a one-line config change in `categorizer.py`'s
+`CATEGORY_CURRENCY`, not new plumbing. Each transaction is converted at
+its own date's rate and summed, rather than applying one rate to a
+month's aggregate, which would be wrong whenever the rate moved
+mid-month. Frankfurter (ECB rates) was chosen specifically because it's
+free with no API key and no rate limit -- verified live before building
+against it, see `docs/design-fx-conversion.md`.
 
 **Three-tier categorization instead of "just call an LLM on everything."**
 Tier 1 is keyword/merchant rules (`backend/categorizer.py::RULES`) — free,

@@ -40,6 +40,16 @@ CREATE TABLE IF NOT EXISTS ingested_files (
     issuer TEXT NOT NULL,
     filename TEXT NOT NULL
 );
+
+-- A historical daily rate never changes after the fact, so entries here
+-- never expire -- see docs/design-fx-conversion.md.
+CREATE TABLE IF NOT EXISTS fx_rates (
+    date TEXT NOT NULL,
+    base TEXT NOT NULL,
+    target TEXT NOT NULL,
+    rate REAL NOT NULL,
+    PRIMARY KEY (date, base, target)
+);
 """
 
 # Columns added after the tables above already shipped -- SQLite can't add
@@ -196,4 +206,24 @@ def clear_all() -> None:
     conn.execute("DELETE FROM transactions")
     conn.execute("DELETE FROM ingested_files")
     conn.execute("DELETE FROM customers")
+    conn.execute("DELETE FROM fx_rates")
+    conn.commit()
+
+
+# --- fx rate cache --------------------------------------------------------
+
+
+def get_cached_fx_rate(date: str, base: str, target: str) -> float | None:
+    conn = _conn()
+    row = conn.execute(
+        "SELECT rate FROM fx_rates WHERE date = ? AND base = ? AND target = ?", (date, base, target)
+    ).fetchone()
+    return row["rate"] if row else None
+
+
+def cache_fx_rate(date: str, base: str, target: str, rate: float) -> None:
+    conn = _conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO fx_rates (date, base, target, rate) VALUES (?, ?, ?, ?)", (date, base, target, rate)
+    )
     conn.commit()

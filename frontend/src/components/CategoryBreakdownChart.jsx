@@ -6,19 +6,29 @@ function fmt(n) {
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
+function fmtCurrency(amount, currency) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(amount);
+}
+
 function CustomTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
-  const { category, total, color } = payload[0].payload;
+  const { category, total, color, convertedTotal, convertedCurrency } = payload[0].payload;
   return (
-    <div className="flex items-center gap-2 rounded-md border border-hairline bg-surface px-3 py-2 text-sm shadow-sm">
-      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-      <span className="text-ink-secondary">{category}</span>
-      <span className="ml-auto font-medium tabular-nums text-ink-primary">{fmt(total)}</span>
+    <div className="rounded-md border border-hairline bg-surface px-3 py-2 text-sm shadow-sm">
+      <div className="flex items-center gap-2">
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+        <span className="text-ink-secondary">{category}</span>
+        <span className="ml-auto font-medium tabular-nums text-ink-primary">{fmt(total)}</span>
+      </div>
+      {convertedTotal != null && (
+        <p className="mt-1 text-right text-xs text-ink-muted">≈ {fmtCurrency(convertedTotal, convertedCurrency)}</p>
+      )}
     </div>
   );
 }
 
 function TableView({ rows }) {
+  const hasConverted = rows.some((r) => r.convertedTotal != null);
   return (
     <div className="overflow-x-auto rounded-md border border-hairline">
       <table className="w-full text-left text-sm">
@@ -30,6 +40,11 @@ function TableView({ rows }) {
             <th scope="col" className="px-3 py-2 font-medium tabular-nums">
               Spend
             </th>
+            {hasConverted && (
+              <th scope="col" className="px-3 py-2 font-medium tabular-nums">
+                Converted
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -37,6 +52,11 @@ function TableView({ rows }) {
             <tr key={row.category} className="border-b border-hairline last:border-0">
               <td className="px-3 py-2 text-ink-primary">{row.category}</td>
               <td className="px-3 py-2 tabular-nums text-ink-secondary">{fmt(row.total)}</td>
+              {hasConverted && (
+                <td className="px-3 py-2 tabular-nums text-ink-secondary">
+                  {row.convertedTotal != null ? fmtCurrency(row.convertedTotal, row.convertedCurrency) : "—"}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

@@ -57,6 +57,14 @@ CATEGORIES = [
 # out from Zelle for that reason.
 NON_SPEND_CATEGORIES = {"Income & Transfers", "Credit Card Payment", "Savings Transfer", "Investment Transfer"}
 
+# Categories that represent an international payment, mapped to the
+# recipient's currency -- used by main.py to attach a historical FX
+# conversion (see fx.py, docs/design-fx-conversion.md). Student Loan
+# Payment/India is the one confirmed real case today; extend this mapping
+# if a second international category ever shows up in real data rather
+# than guessing ahead of time.
+CATEGORY_CURRENCY = {"Student Loan Payment": "INR"}
+
 # Cheap, high-confidence keyword rules. Extend this as you see real merchant
 # strings in your own statements -- it will quickly cover the bulk of your spend.
 RULES = {

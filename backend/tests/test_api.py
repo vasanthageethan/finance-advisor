@@ -262,3 +262,31 @@ def test_summary_flags_partial_months(client, customer):
     by_month = {m["month"]: m for m in resp.json()}
     assert by_month["2026-01"]["is_partial"] is False
     assert by_month["2026-02"]["is_partial"] is True
+
+
+def test_summary_attaches_fx_conversion_for_mapped_categories(client, customer, monkeypatch):
+    import db as db_module
+
+    monkeypatch.setattr("main.fx.convert", lambda amount, date, base, target: round(amount * 90, 2))
+
+    db_module.insert_transactions(
+        customer["customer_id"],
+        [
+            {
+                "date": "2026-07-05", "description": "REMITLY", "amount": 500.0,
+                "category": "Student Loan Payment", "category_source": "rule", "confidence": 1.0, "account": None,
+            },
+            {
+                "date": "2026-07-10", "description": "COFFEE", "amount": 6.5,
+                "category": "Dining & Restaurants", "category_source": "rule", "confidence": 1.0, "account": None,
+            },
+        ],
+    )
+
+    resp = client.get("/summary")
+    assert resp.status_code == 200
+    by_cat = {c["category"]: c for c in resp.json()[0]["by_category"]}
+    assert by_cat["Student Loan Payment"]["converted_total"] == 45000.0
+    assert by_cat["Student Loan Payment"]["converted_currency"] == "INR"
+    # a category with no entry in CATEGORY_CURRENCY gets no conversion fields
+    assert by_cat["Dining & Restaurants"]["converted_total"] is None

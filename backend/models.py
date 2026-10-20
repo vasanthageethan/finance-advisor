@@ -19,6 +19,8 @@ class CategorySummary(BaseModel):
     total: float
     transaction_count: int
     pct_of_spend: float
+    converted_total: Optional[float] = None  # present only for categories in CATEGORY_CURRENCY
+    converted_currency: Optional[str] = None
 
 
 class MonthlySummary(BaseModel):

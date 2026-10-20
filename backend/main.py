@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import anthropic
+import httpx
 import ollama
 import pandas as pd
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
@@ -25,7 +26,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import auth
 import db
 import filestore
-from categorizer import NON_SPEND_CATEGORIES, categorize
+import fx
+from categorizer import CATEGORY_CURRENCY, NON_SPEND_CATEGORIES, categorize
 from insights import generate_insights
 from models import (
     AccountCoverage,
@@ -274,6 +276,29 @@ async def upload_pdf_statement(
         ) from exc
 
 
+def _build_category_summary(cat: str, items: list, total: float) -> CategorySummary:
+    summary = CategorySummary(
+        category=cat,
+        total=round(sum(t["amount"] for t in items), 2),
+        transaction_count=len(items),
+        pct_of_spend=round(sum(t["amount"] for t in items) / total * 100, 1) if total else 0.0,
+    )
+    target_currency = CATEGORY_CURRENCY.get(cat)
+    if target_currency:
+        try:
+            # Each transaction converted at its own date's rate, then
+            # summed -- applying one rate to the whole month's total would
+            # be wrong whenever the rate moved during the month. See
+            # docs/design-fx-conversion.md.
+            summary.converted_total = round(sum(fx.convert(t["amount"], t["date"], "USD", target_currency) for t in items), 2)
+            summary.converted_currency = target_currency
+        except httpx.HTTPError:
+            # FX lookup is a nice-to-have enrichment -- a transient network
+            # failure shouldn't take down /summary entirely.
+            pass
+    return summary
+
+
 def _compute_summary(customer_id: str) -> list[MonthlySummary]:
     transactions = db.fetch_all_transactions(customer_id)
     if not transactions:
@@ -300,12 +325,7 @@ def _compute_summary(customer_id: str) -> list[MonthlySummary]:
             by_cat[t["category"] or "Other"].append(t)
 
         cat_summaries = [
-            CategorySummary(
-                category=cat,
-                total=round(sum(t["amount"] for t in items), 2),
-                transaction_count=len(items),
-                pct_of_spend=round(sum(t["amount"] for t in items) / total * 100, 1) if total else 0.0,
-            )
+            _build_category_summary(cat, items, total)
             for cat, items in sorted(by_cat.items(), key=lambda kv: -sum(t["amount"] for t in kv[1]))
         ]
 

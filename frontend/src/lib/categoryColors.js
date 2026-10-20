@@ -52,7 +52,13 @@ export function monthBreakdown(monthSummary, colorMap, topCategories) {
   let otherTotal = 0;
   for (const c of monthSummary.by_category) {
     if (topSet.has(c.category)) {
-      rows.push({ category: c.category, total: c.total, color: colorMap.get(c.category) });
+      rows.push({
+        category: c.category,
+        total: c.total,
+        color: colorMap.get(c.category),
+        convertedTotal: c.converted_total ?? null,
+        convertedCurrency: c.converted_currency ?? null,
+      });
     } else {
       otherTotal += c.total;
     }
