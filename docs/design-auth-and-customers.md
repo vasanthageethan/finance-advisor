@@ -15,10 +15,14 @@ cosmetic "Hello {name}" with no gate behind it -- this is a genuine
 multi-user-ready foundation, not a UI decoration, even though exactly one
 customer exists today.
 
-## First-run bootstrap, not a registration form
+## First-run bootstrap, then real registration for anyone else
 
-A registration UI is the wrong shape for an app with exactly one intended
-user. Instead:
+A registration UI was initially judged the wrong shape for an app with
+exactly one intended user -- revisited once that stopped being true
+(a second customer became a real requirement). The first/owner account
+still goes through the bootstrap flow below rather than a public sign-up
+form; `POST /auth/register` is additive, for every account after that
+one:
 
 1. On backend startup, if no customer row exists, one is seeded (name
    and email from `CUSTOMER_NAME` / `CUSTOMER_EMAIL` env vars, defaulting
@@ -31,10 +35,28 @@ user. Instead:
    after the first successful call. No way to use it to take over an
    already-configured account.
 4. From then on, `POST /auth/login` (email + password) is the only way
-   in, same as any normal app.
+   in for that account.
 
 This means Claude (or anyone else working in this repo) never sees or
 handles the real password -- it's typed directly into the browser.
+
+## Registration (`POST /auth/register`)
+
+A standard name + email + password sign-up, open to anyone who can reach
+the API (still localhost-only, see the transport note below). Validates
+the password length, rejects a duplicate email with 409, creates a new
+`customers` row with a fresh `customer_id` (uuid4), hashes the password,
+and returns a token that logs the new account straight in -- same
+response shape as `/auth/login` and `/auth/set-password`, so the frontend
+treats all three the same way once they resolve.
+
+A freshly registered customer starts with **zero** transactions, ingested
+files, or Mongo-stored statements -- every data endpoint is scoped by
+`customer_id`, so there's nothing to backfill or isolate specially; the
+same scoping that protects the first customer's data protects every
+later one automatically. Verified directly, not just asserted: registered
+a second account and confirmed `/summary` 404s (no data) for it while the
+original account's 740 transactions stay completely invisible to it.
 
 ## Auth mechanics (`backend/auth.py`)
 
@@ -79,14 +101,12 @@ client guess adjacent ids the way a sequential integer would.
 
 ## What's explicitly not built
 
-No password reset flow, no email verification, no multi-factor, no
-registration for a second customer. All of that is real scope for an app
-that might one day have more than one user; this app doesn't yet, and the
-bootstrap-then-login flow is intentionally the smallest thing that is
-still a real login, not a toy. Revisit if a second customer ever becomes
-a real requirement -- Phase 5's AWS re-platform is the natural point to
-reconsider this against Cognito or a managed auth provider instead of
-hand-rolled JWTs.
+No password reset flow, no email verification, no multi-factor, no rate
+limiting on `/auth/register` or `/auth/login`. All of that is real scope
+for an app meant to be reachable by the public; this one is still
+localhost-only (see below), so it's not needed yet. Revisit alongside
+Phase 5's AWS re-platform, which is also the natural point to reconsider
+hand-rolled JWTs against Cognito or a managed auth provider.
 
 ## Transport security note
 

@@ -65,6 +65,18 @@ export async function login(email, password) {
   return data;
 }
 
+export async function register(name, email, password) {
+  const res = await fetch(`${BASE_URL}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, email, password }),
+  });
+  if (!res.ok) throw new Error((await res.json()).detail || "Registration failed");
+  const data = await res.json();
+  setToken(data.access_token);
+  return data;
+}
+
 export async function logout() {
   clearToken();
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getAuthStatus, getMe, getToken, login, setPassword } from "../auth";
+import { getAuthStatus, getMe, getToken, login, register, setPassword } from "../auth";
 import LandingPage from "./LandingPage.jsx";
 
 function AuthCard({ onBack, children }) {
@@ -82,7 +82,87 @@ function SetupPasswordForm({ onDone, onBack }) {
   );
 }
 
-function LoginForm({ onDone, onBack }) {
+function RegisterForm({ onDone, onBack }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPasswordValue] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    if (!name.trim()) {
+      setError("Name is required.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    if (password !== confirm) {
+      setError("Passwords don't match.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const data = await register(name.trim(), email, password);
+      onDone(data);
+    } catch (err) {
+      setError(err.message);
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <AuthCard onBack={onBack}>
+      <h1 className="text-lg font-semibold text-ink-primary">Create an account</h1>
+      <p className="mt-1 text-sm text-ink-secondary">Your own data, kept separate from every other account.</p>
+      <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+        <input
+          type="text"
+          placeholder="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+          className="w-full rounded-md border border-hairline bg-surface px-3 py-2 text-sm text-ink-primary"
+        />
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="w-full rounded-md border border-hairline bg-surface px-3 py-2 text-sm text-ink-primary"
+        />
+        <input
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => setPasswordValue(e.target.value)}
+          className="w-full rounded-md border border-hairline bg-surface px-3 py-2 text-sm text-ink-primary"
+        />
+        <input
+          type="password"
+          placeholder="Confirm password"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          className="w-full rounded-md border border-hairline bg-surface px-3 py-2 text-sm text-ink-primary"
+        />
+        {error && <p className="text-sm text-status-critical">{error}</p>}
+        <button
+          type="submit"
+          disabled={submitting}
+          className="w-full rounded-md bg-series-1 px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+        >
+          {submitting ? "Creating account…" : "Create account"}
+        </button>
+      </form>
+    </AuthCard>
+  );
+}
+
+function LoginForm({ onDone, onBack, onRegister }) {
   const [email, setEmail] = useState("");
   const [password, setPasswordValue] = useState("");
   const [error, setError] = useState("");
@@ -130,12 +210,20 @@ function LoginForm({ onDone, onBack }) {
           {submitting ? "Signing in…" : "Sign in"}
         </button>
       </form>
+      {onRegister && (
+        <p className="mt-4 text-center text-sm text-ink-secondary">
+          Don't have an account?{" "}
+          <button onClick={onRegister} className="font-medium text-series-1 hover:underline">
+            Create one
+          </button>
+        </p>
+      )}
     </AuthCard>
   );
 }
 
 export default function AuthGate({ children }) {
-  const [status, setStatus] = useState("loading"); // loading | landing | setup | login | authenticated
+  const [status, setStatus] = useState("loading"); // loading | landing | setup | login | register | authenticated
   const [customer, setCustomer] = useState(null);
   const [passwordSet, setPasswordSet] = useState(false);
 
@@ -171,9 +259,25 @@ export default function AuthGate({ children }) {
     );
   }
   if (status === "landing") {
-    return <LandingPage onContinue={() => setStatus(passwordSet ? "login" : "setup")} />;
+    return (
+      <LandingPage
+        onContinue={() => setStatus(passwordSet ? "login" : "setup")}
+        onRegister={() => setStatus("register")}
+      />
+    );
   }
   if (status === "setup") return <SetupPasswordForm onDone={handleAuthed} onBack={() => setStatus("landing")} />;
-  if (status === "login") return <LoginForm onDone={handleAuthed} onBack={() => setStatus("landing")} />;
+  if (status === "login") {
+    return (
+      <LoginForm
+        onDone={handleAuthed}
+        onBack={() => setStatus("landing")}
+        onRegister={() => setStatus("register")}
+      />
+    );
+  }
+  if (status === "register") {
+    return <RegisterForm onDone={handleAuthed} onBack={() => setStatus("landing")} />;
+  }
   return children(customer);
 }

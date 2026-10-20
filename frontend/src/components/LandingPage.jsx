@@ -53,7 +53,7 @@ const FEATURES = [
   { icon: FlagIcon, color: "var(--series-4)", title: "Coverage tracking", body: "Never miss a statement" },
 ];
 
-export default function LandingPage({ onContinue }) {
+export default function LandingPage({ onContinue, onRegister }) {
   return (
     <div className="min-h-screen px-4 py-16 sm:py-24">
       <div className="mx-auto max-w-2xl text-center">
@@ -64,12 +64,20 @@ export default function LandingPage({ onContinue }) {
           Spend tracking and AI-generated trend insights across your own bank and card statements — parsed,
           categorized, and reconciled locally.
         </p>
-        <button
-          onClick={onContinue}
-          className="mt-8 rounded-md bg-series-1 px-6 py-2.5 text-sm font-medium text-white hover:opacity-90"
-        >
-          Sign in
-        </button>
+        <div className="mt-8 flex items-center justify-center gap-3">
+          <button
+            onClick={onContinue}
+            className="rounded-md bg-series-1 px-6 py-2.5 text-sm font-medium text-white hover:opacity-90"
+          >
+            Sign in
+          </button>
+          <button
+            onClick={onRegister}
+            className="rounded-md border border-hairline px-6 py-2.5 text-sm font-medium text-onGradient-primary hover:bg-white/5"
+          >
+            Create account
+          </button>
+        </div>
       </div>
 
       <div className="mx-auto mt-12 max-w-md">

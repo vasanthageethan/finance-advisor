@@ -57,6 +57,12 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+
 class LoginResponse(BaseModel):
     access_token: str
     customer_id: str

@@ -82,6 +82,80 @@ def test_protected_endpoint_rejects_garbage_token(raw_client):
     assert resp.status_code == 401
 
 
+def test_register_creates_customer_row_and_logs_in(raw_client):
+    import db as db_module
+
+    resp = raw_client.post(
+        "/auth/register",
+        json={"name": "New Person", "email": "newperson@example.com", "password": "a-real-password"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["access_token"]
+    assert body["name"] == "New Person"
+
+    row = db_module.get_customer_by_customer_id(body["customer_id"])
+    assert row is not None
+    assert row["name"] == "New Person"
+    assert row["email"] == "newperson@example.com"
+    assert row["password_hash"]  # hashed, present -- never the plaintext
+
+    # The returned token logs straight in, and the password itself verifies.
+    import auth as auth_module
+
+    assert auth_module.verify_password("a-real-password", row["password_hash"])
+    login_resp = raw_client.post("/auth/login", json={"email": "newperson@example.com", "password": "a-real-password"})
+    assert login_resp.status_code == 200
+
+
+def test_register_rejects_duplicate_email(raw_client, customer):
+    resp = raw_client.post(
+        "/auth/register", json={"name": "Someone Else", "email": customer["email"], "password": "a-real-password"}
+    )
+    assert resp.status_code == 409
+
+
+def test_register_rejects_short_password(raw_client):
+    resp = raw_client.post(
+        "/auth/register", json={"name": "X", "email": "shortpw@example.com", "password": "short"}
+    )
+    assert resp.status_code == 400
+
+
+def test_register_rejects_blank_name(raw_client):
+    resp = raw_client.post(
+        "/auth/register", json={"name": "   ", "email": "blankname@example.com", "password": "a-real-password"}
+    )
+    assert resp.status_code == 400
+
+
+def test_registered_customer_starts_with_isolated_empty_data(client, customer):
+    """A freshly registered customer must see none of the fixture
+    `customer`'s data -- registration has to produce real isolation, not
+    just a cosmetic new row."""
+    import db as db_module
+
+    reg_resp = client.post(
+        "/auth/register", json={"name": "Fresh Person", "email": "fresh@example.com", "password": "a-real-password"}
+    )
+    assert reg_resp.status_code == 200
+    new_token = reg_resp.json()["access_token"]
+
+    db_module.insert_transactions(
+        customer["customer_id"],
+        [
+            {
+                "date": "2026-07-05", "description": "ORIGINAL CUSTOMER SPEND", "amount": 12.0,
+                "category": "Shopping", "category_source": "rule", "confidence": 1.0, "account": None,
+            },
+        ],
+    )
+
+    client.headers.update({"Authorization": f"Bearer {new_token}"})
+    resp = client.get("/summary")
+    assert resp.status_code == 404  # the new customer has zero transactions of their own
+
+
 def test_data_is_scoped_per_customer(client, customer):
     """A second customer's data must never show up in the first
     customer's requests -- the entire point of this feature."""

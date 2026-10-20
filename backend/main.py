@@ -37,6 +37,7 @@ from models import (
     LoginRequest,
     LoginResponse,
     MonthlySummary,
+    RegisterRequest,
     SetPasswordRequest,
     Transaction,
 )
@@ -184,6 +185,28 @@ def set_password(body: SetPasswordRequest):
     db.set_customer_password(customer["customer_id"], auth.hash_password(body.password))
     token = auth.create_access_token(customer["customer_id"])
     return LoginResponse(access_token=token, customer_id=customer["customer_id"], name=customer["name"])
+
+
+@app.post("/auth/register", response_model=LoginResponse)
+def register(body: RegisterRequest):
+    """Create an additional customer account. Separate from
+    /auth/set-password's one-time bootstrap, which is specifically for the
+    first/owner account -- see docs/design-auth-and-customers.md. A new
+    registrant starts with zero transactions/files, correctly isolated
+    from every other customer's data."""
+    if not body.name.strip():
+        raise HTTPException(400, "Name is required.")
+    if len(body.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters.")
+    if db.get_customer_by_email(body.email):
+        raise HTTPException(409, "An account with this email already exists.")
+
+    customer_id = str(uuid.uuid4())
+    db.create_customer(customer_id, body.name.strip(), body.email, datetime.now(timezone.utc).isoformat())
+    db.set_customer_password(customer_id, auth.hash_password(body.password))
+
+    token = auth.create_access_token(customer_id)
+    return LoginResponse(access_token=token, customer_id=customer_id, name=body.name.strip())
 
 
 @app.post("/auth/login", response_model=LoginResponse)

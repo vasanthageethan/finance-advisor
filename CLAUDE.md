@@ -60,12 +60,17 @@ sample CSV:
   ingested-file record, and Mongo-stored file to a `customer_id` — see
   `docs/design-auth-and-customers.md`. First run shows a one-time "set
   your password" screen (`GET /auth/status`, `POST /auth/set-password`,
-  closes itself permanently once a password exists); after that it's a
-  normal `POST /auth/login`. `/health` stays unauthenticated (pure
-  liveness, no customer data); everything else requires a bearer token.
-- Frontend (`frontend/`): React + Vite, gated by `AuthGate.jsx` (setup /
-  login / authenticated), showing "Hello {first name}" + a logout button
-  once signed in. Upload form has an account selector (`ACCOUNTS` in
+  closes itself permanently once a password exists) for the first/owner
+  account; `POST /auth/register` (name/email/password) is open after
+  that for any additional customer, each one starting with zero data,
+  fully isolated by `customer_id` from every other account. `/health`
+  stays unauthenticated (pure liveness, no customer data); everything
+  else requires a bearer token.
+- Frontend (`frontend/`): React + Vite, gated by `AuthGate.jsx`
+  (landing / setup / login / register / authenticated) with a
+  "Create account" option alongside "Sign in", showing "Hello {first
+  name}" + a logout button once signed in. Upload form has an account
+  selector (`ACCOUNTS` in
   `frontend/src/api.js`, kept in sync with the backend's `PARSERS`
   registry) that routes to either the CSV or PDF upload endpoint; a trend
   line (`SpendTrendChart`) and a ranked category-breakdown bar chart
@@ -77,9 +82,10 @@ sample CSV:
   `fallback`) and a confidence score, so the "most spend resolves through
   the free tier" claim is measurable per real statement, not just asserted
   against the 25-row sample set.
-- Automated tests exist now: 105 passing (`backend/tests/`), covering the
-  API (including the full auth flow and per-customer data isolation), the
-  categorizer, the Chase/Capital One/SoFi parsers, and `filestore.py`.
+- Automated tests exist now: 110 passing (`backend/tests/`), covering the
+  API (including the full auth/registration flow and per-customer data
+  isolation), the categorizer, the Chase/Capital One/SoFi parsers, and
+  `filestore.py`.
 - Still not done: no CI, no evaluation harness yet for `/insights` output
   quality, no password-reset flow (not needed yet for a single-customer
   app — see the design doc's "what's explicitly not built" section).
