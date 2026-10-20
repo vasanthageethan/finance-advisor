@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getAuthStatus, getMe, getToken, login, setPassword } from "../auth";
+import LandingPage from "./LandingPage.jsx";
 
 function AuthCard({ children }) {
   return (
@@ -92,7 +93,7 @@ function LoginForm({ onDone }) {
 
   return (
     <AuthCard>
-      <h1 className="text-lg font-semibold text-ink-primary">Personal Finance Advisor</h1>
+      <h1 className="text-lg font-semibold text-ink-primary">Welcome back</h1>
       <p className="mt-1 text-sm text-ink-secondary">Sign in to continue.</p>
       <form onSubmit={handleSubmit} className="mt-4 space-y-3">
         <input
@@ -124,29 +125,27 @@ function LoginForm({ onDone }) {
 }
 
 export default function AuthGate({ children }) {
-  const [status, setStatus] = useState("loading"); // loading | setup | login | authenticated
+  const [status, setStatus] = useState("loading"); // loading | landing | setup | login | authenticated
   const [customer, setCustomer] = useState(null);
+  const [passwordSet, setPasswordSet] = useState(false);
 
   useEffect(() => {
     getAuthStatus()
       .then(async ({ password_set }) => {
-        if (!password_set) {
-          setStatus("setup");
-          return;
-        }
-        if (getToken()) {
+        setPasswordSet(password_set);
+        if (password_set && getToken()) {
           try {
             const me = await getMe();
             setCustomer(me);
             setStatus("authenticated");
             return;
           } catch {
-            // fall through to login
+            // fall through to the landing page
           }
         }
-        setStatus("login");
+        setStatus("landing");
       })
-      .catch(() => setStatus("login"));
+      .catch(() => setStatus("landing"));
   }, []);
 
   function handleAuthed({ customer_id, name }) {
@@ -160,6 +159,9 @@ export default function AuthGate({ children }) {
         <p className="text-sm text-ink-muted">Loading…</p>
       </AuthCard>
     );
+  }
+  if (status === "landing") {
+    return <LandingPage onContinue={() => setStatus(passwordSet ? "login" : "setup")} />;
   }
   if (status === "setup") return <SetupPasswordForm onDone={handleAuthed} />;
   if (status === "login") return <LoginForm onDone={handleAuthed} />;
