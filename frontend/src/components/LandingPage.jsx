@@ -1,3 +1,5 @@
+import HeroVisual from "./HeroVisual.jsx";
+
 const FEATURES = [
   {
     title: "Multi-bank statement parsing",
@@ -36,7 +38,11 @@ export default function LandingPage({ onContinue }) {
         </button>
       </div>
 
-      <div className="mx-auto mt-16 grid max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="mx-auto mt-12 max-w-md">
+        <HeroVisual />
+      </div>
+
+      <div className="mx-auto mt-12 grid max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
         {FEATURES.map((f) => (
           <div key={f.title} className="rounded-lg border border-hairline bg-surface p-5">
             <h2 className="text-sm font-semibold text-ink-primary">{f.title}</h2>
