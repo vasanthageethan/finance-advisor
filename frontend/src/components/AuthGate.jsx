@@ -2,15 +2,25 @@ import { useEffect, useState } from "react";
 import { getAuthStatus, getMe, getToken, login, setPassword } from "../auth";
 import LandingPage from "./LandingPage.jsx";
 
-function AuthCard({ children }) {
+function AuthCard({ onBack, children }) {
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-sm rounded-lg border border-hairline bg-surface p-6">{children}</div>
+      <div className="w-full max-w-sm">
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="mb-3 flex items-center gap-1 text-sm text-onGradient-secondary hover:text-onGradient-primary"
+          >
+            ← Back
+          </button>
+        )}
+        <div className="rounded-lg border border-hairline bg-surface p-6">{children}</div>
+      </div>
     </div>
   );
 }
 
-function SetupPasswordForm({ onDone }) {
+function SetupPasswordForm({ onDone, onBack }) {
   const [password, setPasswordValue] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
@@ -38,7 +48,7 @@ function SetupPasswordForm({ onDone }) {
   }
 
   return (
-    <AuthCard>
+    <AuthCard onBack={onBack}>
       <h1 className="text-lg font-semibold text-ink-primary">Set up your password</h1>
       <p className="mt-1 text-sm text-ink-secondary">
         This is a one-time setup for your account. You won't be able to do this again once it's set.
@@ -72,7 +82,7 @@ function SetupPasswordForm({ onDone }) {
   );
 }
 
-function LoginForm({ onDone }) {
+function LoginForm({ onDone, onBack }) {
   const [email, setEmail] = useState("");
   const [password, setPasswordValue] = useState("");
   const [error, setError] = useState("");
@@ -92,7 +102,7 @@ function LoginForm({ onDone }) {
   }
 
   return (
-    <AuthCard>
+    <AuthCard onBack={onBack}>
       <h1 className="text-lg font-semibold text-ink-primary">Welcome back</h1>
       <p className="mt-1 text-sm text-ink-secondary">Sign in to continue.</p>
       <form onSubmit={handleSubmit} className="mt-4 space-y-3">
@@ -163,7 +173,7 @@ export default function AuthGate({ children }) {
   if (status === "landing") {
     return <LandingPage onContinue={() => setStatus(passwordSet ? "login" : "setup")} />;
   }
-  if (status === "setup") return <SetupPasswordForm onDone={handleAuthed} />;
-  if (status === "login") return <LoginForm onDone={handleAuthed} />;
+  if (status === "setup") return <SetupPasswordForm onDone={handleAuthed} onBack={() => setStatus("landing")} />;
+  if (status === "login") return <LoginForm onDone={handleAuthed} onBack={() => setStatus("landing")} />;
   return children(customer);
 }
