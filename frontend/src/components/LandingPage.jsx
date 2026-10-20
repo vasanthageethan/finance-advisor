@@ -1,22 +1,56 @@
 import HeroVisual from "./HeroVisual.jsx";
 
+const ICON_PROPS = {
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: "1.8",
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+  className: "h-5 w-5",
+};
+
+function BankIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <path d="M3 10l9-6 9 6" />
+      <path d="M5 10v9M19 10v9M9 19v-6M15 19v-6" />
+      <path d="M3 19h18" />
+    </svg>
+  );
+}
+
+function LayersIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <path d="M12 3l9 5-9 5-9-5 9-5z" />
+      <path d="M3 13l9 5 9-5" />
+    </svg>
+  );
+}
+
+function SparkIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <path d="M12 3v5M12 16v5M3 12h5M16 12h5M6 6l3 3M18 18l-3-3M6 18l3-3M18 6l-3 3" />
+    </svg>
+  );
+}
+
+function FlagIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <path d="M5 21V4" />
+      <path d="M5 4h13l-3 4 3 4H5" />
+    </svg>
+  );
+}
+
 const FEATURES = [
-  {
-    title: "Multi-bank statement parsing",
-    body: "Upload real Chase, Capital One, and SoFi PDF statements — each one reconciled against its own declared total before anything is trusted.",
-  },
-  {
-    title: "Three-tier categorization",
-    body: "Free keyword rules first, a local model for the rest, Claude (or a local LLM) reserved for the one tier that actually needs real reasoning.",
-  },
-  {
-    title: "AI-generated insights",
-    body: "A written trend narrative and anomaly flags, generated locally by default — no API key required to get started.",
-  },
-  {
-    title: "Statement coverage tracking",
-    body: "A dashboard card flags any account missing a recent month's statement, so a gap doesn't silently skew your spend totals.",
-  },
+  { icon: BankIcon, color: "var(--series-1)", title: "Multi-bank parsing", body: "Chase, Cap One, SoFi" },
+  { icon: LayersIcon, color: "var(--series-2)", title: "Smart tiering", body: "Rules → model → LLM" },
+  { icon: SparkIcon, color: "var(--series-3)", title: "Local AI insights", body: "No API key needed" },
+  { icon: FlagIcon, color: "var(--series-4)", title: "Coverage tracking", body: "Never miss a statement" },
 ];
 
 export default function LandingPage({ onContinue }) {
@@ -42,11 +76,20 @@ export default function LandingPage({ onContinue }) {
         <HeroVisual />
       </div>
 
-      <div className="mx-auto mt-12 grid max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
-        {FEATURES.map((f) => (
-          <div key={f.title} className="rounded-lg border border-hairline bg-surface p-5">
-            <h2 className="text-sm font-semibold text-ink-primary">{f.title}</h2>
-            <p className="mt-1.5 text-sm text-ink-secondary">{f.body}</p>
+      <div className="mx-auto mt-12 grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-4">
+        {FEATURES.map(({ icon: Icon, color, title, body }) => (
+          <div
+            key={title}
+            className="flex flex-col items-center rounded-lg border border-hairline bg-surface p-4 text-center"
+          >
+            <span
+              className="mb-2 flex h-9 w-9 items-center justify-center rounded-full"
+              style={{ color, backgroundColor: "color-mix(in srgb, " + color + " 15%, transparent)" }}
+            >
+              <Icon />
+            </span>
+            <h2 className="text-sm font-semibold text-ink-primary">{title}</h2>
+            <p className="mt-0.5 text-xs text-ink-secondary">{body}</p>
           </div>
         ))}
       </div>
