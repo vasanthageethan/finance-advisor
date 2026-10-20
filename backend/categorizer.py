@@ -23,8 +23,10 @@ CATEGORIES = [
     "Gas & Fuel",
     "Utilities",
     "Rent & Housing",
+    "Auto Loan/Lease Payment",
     "Subscriptions",
     "Entertainment & Leisure",
+    "Personal Care",
     "Shopping",
     "Cash Withdrawal",
     "Healthcare",
@@ -62,27 +64,32 @@ RULES = {
         "trader joe", "whole foods", "wholefds", "safeway", "kroger", "aldi", "costco wholesale",
         "walmart grocery", "costco whse", "costco by instacart", "wal-mart", "wm supercenter", "sisters mart",
         "king soopers", "sprouts farmers mark", "h mart", "taaza mart", "arash grocery", "bombay bazaar",
-        "laxmi food",
+        "laxmi food", "mi pueblo",
     ],
     "Dining & Restaurants": [
         "starbucks", "chipotle", "mcdonald", "doordash", "uber eats", "uber *eats", "grubhub", "restaurant",
         "chick-fil-a", "burger king", "cava", "coffee", "tst*", "tst *", "thirstea", "wendy's", "raising canes",
         "popeyes", "papa john", "gaia masala", "saravanaa bhavan", "desi bites", "mad over curry",
         "tous les jours", "village bagels", "discount liquor", "tower liquors", "ctlp*", "hq cafe", "andy's",
+        "first watch", "taco bell", "mod pizza", "sushi and rame",
     ],
     "Transportation": [
         "uber", "lyft", "metro", "transit", "parking", "enterprise", "mta*", "path tapp", "lime*ride",
         "bird app", "spothero", "schomp subaru",
-        # Monthly car lease payment (confirmed by account owner). "als 1648"
-        # is this specific lease servicer/account reference, not a
-        # generalizable merchant string -- fine for a tool tailored to one
-        # user's own statements. Using the full "to als 1648" phrase (not
-        # bare "als") avoids false-matching unrelated words like "also".
-        "to als 1648",
     ],
     "Gas & Fuel": ["shell", "chevron", "exxon", "76 gas", "arco", "costco gas", "esso circle k", "love's"],
     "Utilities": ["pg&e", "comcast", "at&t", "verizon", "water dept", "electric", "boost mobile"],
     "Rent & Housing": ["rent", "property mgmt", "apartments"],
+    # A recurring, fixed-amount bill (same shape as Student Loan Payment),
+    # but dwarfs ordinary day-to-day Transportation spend (Uber/parking) if
+    # lumped in with it -- split out for the same reason Student Loan
+    # Payment isn't dumped into "Other"/general transfers. "als 1648" is
+    # this specific lease servicer/account reference (confirmed by the
+    # account owner), not a generalizable merchant string -- fine for a
+    # tool tailored to one user's own statements. Using the full "to als
+    # 1648" phrase (not bare "als") avoids false-matching unrelated words
+    # like "also".
+    "Auto Loan/Lease Payment": ["to als 1648"],
     # Fixed, predictable MONTHLY bills only -- these should look roughly the
     # same total every month (step changes from a price hike or a new
     # subscription starting are expected; a large one-off spike is not).
@@ -92,31 +99,55 @@ RULES = {
     # spiky-total problem this split exists to avoid. See Fees & Interest.
     "Subscriptions": [
         "netflix", "spotify", "hulu", "disney+", "amazon prime", "youtube", "adobe", "apple.com/bill",
-        "crunchyroll",
+        "crunchyroll", "anthropic",
+        # Affirm installment payment -- confirmed by the account owner to be
+        # a device financing plan (Samsung phone). Flat $54.03 every month
+        # (verified against real statement data), so it belongs with the
+        # other fixed-monthly bills here rather than in Shopping, which is
+        # for variable one-off purchases. The line item carries no merchant
+        # name, so this can't be inferred from the description alone.
+        "affirm.com",
     ],
     # One-off leisure/outing purchases. Naturally variable month to month
     # by design -- don't expect this one to be flat.
-    "Entertainment & Leisure": ["cinemark", "fandango", "amc ", "bowlero", "great clips"],
+    "Entertainment & Leisure": ["cinemark", "fandango", "amc ", "bowlero"],
+    # Personal grooming/upkeep -- a haircut isn't "leisure" in the same
+    # sense as a movie or bowling, and it recurs on its own (roughly
+    # monthly) cadence rather than being a one-off outing.
+    "Personal Care": ["great clips"],
     "Shopping": [
         "amazon.com", "amzn.com", "amazon mktpl", "target", "best buy", "ebay", "walmart.com", "wmt plus",
         "american eagle", "dillards", "express#", "old navy", "gap outlet", "h&m ", "calvin klein",
         "coach outlet", "adidas", "columbia", "swarovski", "dicks sporting", "rei #", "fedex offic",
-        "parcel pending", "minutekey", "samsung",
-        # Affirm installment payment -- confirmed by the account owner to be
-        # a device financing plan (Samsung phone), i.e. real recurring
-        # spend, not a transfer. The line item itself carries no merchant
-        # name, so this can't be inferred from the description alone.
-        "affirm.com",
+        "parcel pending", "minutekey", "samsung", "brooks sports", "levi's",
+        # Catches both "MAC Park Meadows..." and "MACYS PARK MEADOWS..." --
+        # two POS-formatting variants of the same mall/merchant observed in
+        # real statement data.
+        "park meadows",
+        # Shipping/printing store -- same category as FedEx Office above.
+        # Previously fell through to the zero-shot tier, which guessed
+        # "Transportation" (shipping != transit) at just 0.574 confidence.
+        "ups store",
     ],
     # Cash withdrawn from an ATM. Real spend -- kept in the total -- but
     # what it was actually spent on isn't knowable from a bank statement,
     # so it gets its own honest label instead of pretending to know more.
     "Cash Withdrawal": ["atm withdrawal"],
-    "Healthcare": ["cvs pharmacy", "cvs/pharmacy", "walgreens", "urgent care", "medical", "labcorp", "hims and hers"],
+    "Healthcare": [
+        "cvs pharmacy", "cvs/pharmacy", "walgreens", "urgent care", "medical", "labcorp", "hims and hers",
+        "skin doctors",
+    ],
     "Travel": [
         "delta air", "united airlines", "united.com", "air canada", "airbnb", "marriott", "hilton", "sonesta",
-        "expedia", "frontier ai", "georgetown loop", "statue cruises", "nyc ferry", "travel guard",
-        "recreation.gov", "st mary's glacier", "ogx photo",
+        "expedia", "georgetown loop", "statue cruises", "nyc ferry", "travel guard",
+        "recreation.gov", "st mary's glacier", "ogx photo", "breckenridge", "breck park",
+        # Broadened from "frontier ai" -- the other two real "FRONTIER
+        # <code> DENVER CO" lines observed (no "ai" segment) are Frontier
+        # Airlines charges too, inferred from amount ($178-245, consistent
+        # with a domestic flight, not a flat recurring utility bill) since
+        # Denver is a Frontier Airlines hub. Revisit if a Frontier
+        # Communications bill ever actually shows up in this data.
+        "frontier",
     ],
     "Insurance": ["geico", "state farm", "progressive insurance"],
     "Fees & Interest": [
