@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getSummary } from "../api";
+import FxRateBanner from "./FxRateBanner";
 import StatTiles from "./StatTiles";
 import StatementCoverage from "./StatementCoverage";
 import SpendTrendChart from "./SpendTrendChart";
@@ -34,6 +35,7 @@ export default function Dashboard({ refreshKey }) {
 
   return (
     <div className="space-y-6">
+      <FxRateBanner summary={summary} />
       <StatTiles summary={summary} />
       <StatementCoverage refreshKey={refreshKey} />
       <SpendTrendChart summary={summary} />

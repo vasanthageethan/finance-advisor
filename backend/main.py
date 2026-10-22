@@ -35,6 +35,7 @@ from models import (
     CategorySummary,
     CoverageResponse,
     CustomerProfile,
+    FxRateResponse,
     InsightsResponse,
     LoginRequest,
     LoginResponse,
@@ -390,6 +391,19 @@ def _compute_coverage(customer_id: str) -> CoverageResponse:
 @app.get("/coverage", response_model=CoverageResponse)
 def coverage(customer_id: str = Depends(auth.require_bearer_token)):
     return _compute_coverage(customer_id)
+
+
+@app.get("/fx/latest", response_model=FxRateResponse)
+def latest_fx_rate(
+    base: str = "USD", target: str = "INR", customer_id: str = Depends(auth.require_bearer_token)
+):
+    try:
+        rate, resolved_date = fx.get_latest_rate(base, target)
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, f"Could not reach the exchange rate service: {exc}") from exc
+    except KeyError as exc:
+        raise HTTPException(400, f"Unknown currency code: {exc}") from exc
+    return FxRateResponse(base=base, target=target, rate=rate, date=resolved_date)
 
 
 @app.get("/insights", response_model=InsightsResponse)

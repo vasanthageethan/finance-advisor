@@ -290,3 +290,27 @@ def test_summary_attaches_fx_conversion_for_mapped_categories(client, customer, 
     assert by_cat["Student Loan Payment"]["converted_currency"] == "INR"
     # a category with no entry in CATEGORY_CURRENCY gets no conversion fields
     assert by_cat["Dining & Restaurants"]["converted_total"] is None
+
+
+def test_fx_latest_requires_auth(raw_client):
+    resp = raw_client.get("/fx/latest")
+    assert resp.status_code == 401
+
+
+def test_fx_latest_returns_rate(client, monkeypatch):
+    monkeypatch.setattr("main.fx.get_latest_rate", lambda base, target: (94.47, "2026-10-21"))
+    resp = client.get("/fx/latest?base=USD&target=INR")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body == {"base": "USD", "target": "INR", "rate": 94.47, "date": "2026-10-21"}
+
+
+def test_fx_latest_surfaces_service_errors_as_503(client, monkeypatch):
+    import httpx
+
+    def raise_error(base, target):
+        raise httpx.ConnectError("no network")
+
+    monkeypatch.setattr("main.fx.get_latest_rate", raise_error)
+    resp = client.get("/fx/latest")
+    assert resp.status_code == 503

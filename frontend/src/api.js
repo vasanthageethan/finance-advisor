@@ -44,3 +44,9 @@ export async function getCoverage() {
   if (!res.ok) throw new Error("No coverage data yet");
   return res.json();
 }
+
+export async function getLatestFxRate(base = "USD", target = "INR") {
+  const res = await authedFetch(`/fx/latest?base=${base}&target=${target}`);
+  if (!res.ok) throw new Error((await res.json()).detail || "Could not fetch the exchange rate");
+  return res.json();
+}

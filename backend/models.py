@@ -75,3 +75,10 @@ class CustomerProfile(BaseModel):
     customer_id: str
     name: str
     email: str
+
+
+class FxRateResponse(BaseModel):
+    base: str
+    target: str
+    rate: float
+    date: str  # the rate's resolved date -- today's, or the prior business day's

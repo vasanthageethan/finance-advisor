@@ -32,3 +32,21 @@ def get_historical_rate(date: str, base: str = "USD", target: str = "INR") -> fl
 def convert(amount: float, date: str, base: str = "USD", target: str = "INR") -> float:
     rate = get_historical_rate(date, base, target)
     return round(amount * rate, 2)
+
+
+def get_latest_rate(base: str = "USD", target: str = "INR") -> tuple[float, str]:
+    """Returns (rate, date) for the most recent available rate -- today's,
+    or the prior business day's if today is a weekend/ECB holiday.
+    Deliberately not cache-first like get_historical_rate: the caller
+    (the live rate banner) wants this fetched fresh on every request, not
+    served from a possibly-stale earlier-today lookup. The resolved date
+    still gets cached afterward, so a later historical lookup for that
+    same date doesn't re-fetch it."""
+    response = httpx.get(f"{FRANKFURTER_URL}/latest", params={"base": base, "symbols": target}, timeout=10)
+    response.raise_for_status()
+    body = response.json()
+    rate = body["rates"][target]
+    resolved_date = body["date"]
+
+    db.cache_fx_rate(resolved_date, base, target, rate)
+    return rate, resolved_date
